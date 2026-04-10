@@ -364,5 +364,10 @@ async def main():
     await run_cycle(config)
 
 
-if __name__ == "__main__":
+def cli():
+    """Entry point for the `reddit-agent` command (installed via pip)."""
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    cli()

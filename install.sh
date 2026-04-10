@@ -1,106 +1,87 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Reddit Agent — One-command installer
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  Reddit Agent — Installer
 #
-# Designed to be run by an OpenClaw agent OR a human.
-# The agent can run: ./install.sh --non-interactive
-# and pass only REDDIT_USERNAME + REDDIT_PASSWORD.
+#  Install:  pip install reddit-agent@git+https://github.com/sohazur/reddit-agent
+#  Or:       curl -fsSL https://raw.githubusercontent.com/sohazur/reddit-agent/main/install.sh | bash
+#  Or:       ./install.sh
 #
-# API keys: Uses the host environment (OpenClaw's shell env injects them).
-# Messaging: The agent itself handles notifications (WhatsApp/Telegram/etc).
-# No Slack needed. No separate Anthropic key needed.
+#  Updates:  reddit-agent-update  (pulls latest from GitHub)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 INSTALL_DIR="${REDDIT_AGENT_DIR:-$HOME/.reddit-agent}"
-BOLD='\033[1m'
+REPO_URL="https://github.com/sohazur/reddit-agent.git"
+
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
+BOLD='\033[1m'
 NC='\033[0m'
 
-info()  { echo -e "${GREEN}[✓]${NC} $*"; }
+info()  { echo -e "${GREEN}[OK]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[!]${NC} $*"; }
-err()   { echo -e "${RED}[✗]${NC} $*"; }
-ask()   { echo -en "${BOLD}$*${NC} "; }
-
-# ─── Step 0: Check prerequisites ───────────────────────────────
+err()   { echo -e "${RED}[X]${NC} $*"; }
 
 echo ""
-echo -e "${BOLD}Reddit Agent — Installer${NC}"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e "${BOLD}Reddit Agent${NC} — Autonomous Reddit engagement for OpenClaw"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-# Check Python 3.12+
+# ─── Prerequisites ─────────────────────────────────
+
+# Python
 if ! command -v python3 &>/dev/null; then
-    # Try to install Python
     if command -v apt-get &>/dev/null; then
-        info "Installing Python 3..."
+        echo "Installing Python..."
         apt-get update -qq && apt-get install -y -qq python3 python3-venv python3-pip >/dev/null 2>&1
     elif command -v brew &>/dev/null; then
-        info "Installing Python 3 via Homebrew..."
         brew install python@3.12 >/dev/null 2>&1
     else
-        err "Python 3 not found and can't auto-install. Install Python 3.12+ first."
+        err "Python 3.12+ required. Install it first."
         exit 1
     fi
 fi
+info "Python $(python3 --version 2>&1 | awk '{print $2}')"
 
-PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-info "Python $PY_VERSION"
-
-# Check/install uv (fast Python package manager)
+# uv (fast package manager)
 if ! command -v uv &>/dev/null; then
-    info "Installing uv package manager..."
+    echo "Installing uv..."
     curl -LsSf https://astral.sh/uv/install.sh 2>/dev/null | sh >/dev/null 2>&1
     export PATH="$HOME/.local/bin:$PATH"
-    if ! command -v uv &>/dev/null; then
-        # Fall back to pip
-        PKG_MGR="pip"
-        info "Using pip (uv not available)"
-    else
-        PKG_MGR="uv"
-        info "uv installed"
-    fi
-else
+fi
+if command -v uv &>/dev/null; then
     PKG_MGR="uv"
-    info "uv found"
+    info "uv $(uv --version 2>&1 | head -1)"
+else
+    PKG_MGR="pip"
+    info "pip (fallback)"
 fi
 
-# Check/install git
+# git
 if ! command -v git &>/dev/null; then
     if command -v apt-get &>/dev/null; then
         apt-get install -y -qq git >/dev/null 2>&1
     fi
 fi
 
-# ─── Step 1: Install the project ───────────────────────────────
+# ─── Install / Update ─────────────────────────────
 
-if [ -d "$INSTALL_DIR" ] && [ -f "$INSTALL_DIR/pyproject.toml" ]; then
-    info "Existing installation found, updating..."
+if [ -d "$INSTALL_DIR/.git" ]; then
+    echo "Updating existing installation..."
     cd "$INSTALL_DIR"
-    if [ -d .git ]; then
-        git pull --quiet 2>/dev/null || true
-    fi
+    git pull --quiet 2>/dev/null || true
+    info "Updated to latest version"
 else
-    # Clone or copy
-    if [ -d "$(dirname "$0")/src" ] && [ -f "$(dirname "$0")/pyproject.toml" ]; then
-        cp -r "$(cd "$(dirname "$0")" && pwd)" "$INSTALL_DIR"
-        info "Copied from local directory"
-    elif command -v git &>/dev/null; then
-        git clone --depth 1 https://github.com/sohazur/reddit-agent.git "$INSTALL_DIR" 2>/dev/null || {
-            err "Clone failed. Copy the project manually to $INSTALL_DIR"
-            exit 1
-        }
-        info "Cloned from GitHub"
-    else
-        err "git not found and not running from source. Install git or copy project to $INSTALL_DIR"
-        exit 1
-    fi
+    echo "Installing..."
+    git clone --depth 1 "$REPO_URL" "$INSTALL_DIR" 2>/dev/null
+    info "Cloned repository"
 fi
 
 cd "$INSTALL_DIR"
 
-# Create venv and install deps
+# Python venv + deps
 if [ "$PKG_MGR" = "uv" ]; then
     uv venv .venv --quiet 2>/dev/null
     uv pip install -e ".[dev]" --quiet 2>/dev/null
@@ -110,81 +91,49 @@ else
 fi
 info "Dependencies installed"
 
-# Install Playwright + Chromium
+# Playwright + Chromium
 .venv/bin/playwright install chromium 2>/dev/null || {
-    # On Linux, may need system deps
     .venv/bin/playwright install-deps chromium 2>/dev/null || true
     .venv/bin/playwright install chromium 2>/dev/null
 }
-info "Chromium browser installed"
+info "Chromium installed"
 
-# ─── Step 2: Configuration ─────────────────────────────────────
+# ─── Configuration ─────────────────────────────────
 
-echo ""
 ENV_FILE="$INSTALL_DIR/.env"
 
 if [ "${1:-}" = "--non-interactive" ]; then
-    # Non-interactive: use env vars or defaults
-    # Only REDDIT_USERNAME and REDDIT_PASSWORD are truly required
+    # Non-interactive: REDDIT_USERNAME + REDDIT_PASSWORD from env
     if [ -z "${REDDIT_USERNAME:-}" ] || [ -z "${REDDIT_PASSWORD:-}" ]; then
-        err "Non-interactive mode requires REDDIT_USERNAME and REDDIT_PASSWORD env vars"
+        err "Need REDDIT_USERNAME and REDDIT_PASSWORD env vars"
         exit 1
     fi
-
-    # Try to find Anthropic key from environment (OpenClaw usually has it)
-    API_KEY="${ANTHROPIC_API_KEY:-${OPENAI_API_KEY:-}}"
-    if [ -z "$API_KEY" ]; then
-        # Check if OpenClaw has shell env enabled — keys may be available at runtime
-        warn "No API key found in env. The OpenClaw agent will use its own LLM access."
-        API_KEY="agent-provided"
-    fi
-
     cat > "$ENV_FILE" <<EOF
 REDDIT_USERNAME=${REDDIT_USERNAME}
 REDDIT_PASSWORD=${REDDIT_PASSWORD}
-ANTHROPIC_API_KEY=${API_KEY}
 MAX_COMMENTS_PER_DAY=${MAX_COMMENTS_PER_DAY:-5}
 MIN_COMMENT_INTERVAL_MINUTES=${MIN_COMMENT_INTERVAL_MINUTES:-20}
 QUALITY_THRESHOLD=${QUALITY_THRESHOLD:-7}
 CYCLE_INTERVAL_HOURS=${CYCLE_INTERVAL_HOURS:-2}
-LOG_LEVEL=${LOG_LEVEL:-INFO}
+LOG_LEVEL=INFO
 SCREENSHOT_ON_ERROR=true
 EOF
-
-else
-    # Interactive mode — only ask what's absolutely necessary
-    echo -e "${BOLD}I just need your Reddit account credentials.${NC}"
-    echo "(Everything else is auto-configured.)"
+elif [ ! -f "$ENV_FILE" ] || grep -q "placeholder" "$ENV_FILE" 2>/dev/null; then
     echo ""
-
-    ask "Reddit username:"
+    echo -e "${BOLD}Setup${NC} — I just need your Reddit credentials."
+    echo ""
+    printf "Reddit username: "
     read -r R_USER
-    ask "Reddit password:"
+    printf "Reddit password: "
     read -rs R_PASS
     echo ""
-
-    # Try to find API key from environment
-    API_KEY="${ANTHROPIC_API_KEY:-${OPENAI_API_KEY:-}}"
-    if [ -z "$API_KEY" ]; then
-        echo ""
-        ask "Anthropic API key (or press Enter if OpenClaw provides it):"
-        read -rs A_KEY
-        echo ""
-        API_KEY="${A_KEY:-agent-provided}"
-    else
-        info "Found API key in environment"
-    fi
-
-    # Cadence defaults (just confirm or customize)
-    echo ""
-    ask "Max comments per day [5]:"
+    printf "Max comments/day [5]: "
     read -r MAX_DAILY
     MAX_DAILY="${MAX_DAILY:-5}"
 
     cat > "$ENV_FILE" <<EOF
 REDDIT_USERNAME=$R_USER
 REDDIT_PASSWORD=$R_PASS
-ANTHROPIC_API_KEY=$API_KEY
 MAX_COMMENTS_PER_DAY=$MAX_DAILY
 MIN_COMMENT_INTERVAL_MINUTES=20
 QUALITY_THRESHOLD=7
@@ -192,106 +141,130 @@ CYCLE_INTERVAL_HOURS=2
 LOG_LEVEL=INFO
 SCREENSHOT_ON_ERROR=true
 EOF
+    info "Credentials saved"
+else
+    info "Using existing config"
 fi
 
 chmod 600 "$ENV_FILE"
-info "Configuration saved"
 
-# ─── Step 3: Initialize database ──────────────────────────────
+# ─── Initialize ───────────────────────────────────
 
 .venv/bin/python -c "from src.db import init_db; init_db()" 2>/dev/null
-info "Database initialized"
+info "Database ready"
 
-# ─── Step 4: Create wrapper command ───────────────────────────
+# ─── Commands ─────────────────────────────────────
 
-cat > "$INSTALL_DIR/reddit-agent" <<'WRAPPER'
+# Main command
+cat > "$INSTALL_DIR/reddit-agent" <<'CMD'
 #!/usr/bin/env bash
-cd "$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+# Source shell env for API keys
+[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null || true
 exec .venv/bin/python -m src.main "$@"
-WRAPPER
+CMD
 chmod +x "$INSTALL_DIR/reddit-agent"
 
-# Add to PATH
+# Update command
+cat > "$INSTALL_DIR/reddit-agent-update" <<CMD
+#!/usr/bin/env bash
+echo "Updating Reddit Agent..."
+cd "$INSTALL_DIR"
+git pull 2>&1
+if [ "$PKG_MGR" = "uv" ]; then
+    uv pip install -e ".[dev]" --quiet 2>/dev/null
+else
+    .venv/bin/pip install -e ".[dev]" --quiet 2>/dev/null
+fi
+echo "Updated to \$(git log --oneline -1)"
+CMD
+chmod +x "$INSTALL_DIR/reddit-agent-update"
+
+# Symlink to PATH
 mkdir -p "$HOME/.local/bin"
 ln -sf "$INSTALL_DIR/reddit-agent" "$HOME/.local/bin/reddit-agent"
-export PATH="$HOME/.local/bin:$PATH"
-info "Command 'reddit-agent' installed"
+ln -sf "$INSTALL_DIR/reddit-agent-update" "$HOME/.local/bin/reddit-agent-update"
+info "Commands: reddit-agent, reddit-agent-update"
 
-# ─── Step 5: OpenClaw integration ─────────────────────────────
+# ─── OpenClaw Integration ─────────────────────────
 
-OPENCLAW_DIR="$HOME/.openclaw"
-CLAWD_DIR="$HOME/clawd"
+OPENCLAW_SKILLS=""
+for dir in "$HOME/.openclaw/agents/skills" "$HOME/.openclaw/skills"; do
+    [ -d "$dir" ] && OPENCLAW_SKILLS="$dir" && break
+done
 
-if [ -d "$OPENCLAW_DIR" ]; then
-    echo ""
-    info "OpenClaw detected — installing skill"
-
-    # Install skill
-    SKILL_DIR="$OPENCLAW_DIR/skills/reddit-agent"
+if [ -n "$OPENCLAW_SKILLS" ]; then
+    SKILL_DIR="$OPENCLAW_SKILLS/reddit-agent"
     mkdir -p "$SKILL_DIR"
-    if [ -f "$INSTALL_DIR/openclaw/SKILL.md" ]; then
-        cp "$INSTALL_DIR/openclaw/SKILL.md" "$SKILL_DIR/SKILL.md"
-    fi
+    cp "$INSTALL_DIR/openclaw/SKILL.md" "$SKILL_DIR/SKILL.md"
+    info "OpenClaw skill installed"
 
-    # Register cron job
-    CRON_FILE="$OPENCLAW_DIR/cron/jobs.json"
-    if [ -f "$CRON_FILE" ]; then
+    # Register cron
+    for cron_file in "$HOME/.openclaw/cron/jobs.json"; do
+        [ -f "$cron_file" ] || continue
         .venv/bin/python -c "
 import json, os
-cron_path = '$CRON_FILE'
+path = '$cron_file'
 interval = os.environ.get('CYCLE_INTERVAL_HOURS', '2')
-try:
-    with open(cron_path) as f:
-        data = json.load(f)
-except:
-    data = {'version': 1, 'jobs': []}
+with open(path) as f:
+    data = json.load(f)
 data['jobs'] = [j for j in data.get('jobs', []) if j.get('name') != 'reddit-agent']
 data['jobs'].append({
+    'id': 'reddit-agent-cycle',
+    'agentId': 'main',
     'name': 'reddit-agent',
-    'schedule': f'0 */{interval} * * *',
-    'command': '$INSTALL_DIR/reddit-agent',
-    'description': 'Run Reddit engagement cycle',
-    'enabled': True
+    'enabled': True,
+    'schedule': {'kind': 'cron', 'expr': '0 */' + interval + ' * * *', 'tz': 'UTC'},
+    'sessionTarget': 'isolated',
+    'wakeMode': 'next-heartbeat',
+    'payload': {
+        'kind': 'agentTurn',
+        'text': 'Run: reddit-agent. Report the results to me.'
+    },
+    'state': {}
 })
-with open(cron_path, 'w') as f:
+with open(path, 'w') as f:
     json.dump(data, f, indent=2)
 " 2>/dev/null
-        info "Cron job registered (every ${CYCLE_INTERVAL_HOURS:-2}h)"
-    fi
+        info "OpenClaw cron: every ${CYCLE_INTERVAL_HOURS:-2}h"
+        break
+    done
 
-    # Add to HEARTBEAT.md if it exists and doesn't already mention reddit
-    if [ -f "$CLAWD_DIR/HEARTBEAT.md" ]; then
-        if ! grep -q "reddit-agent" "$CLAWD_DIR/HEARTBEAT.md" 2>/dev/null; then
-            cat >> "$CLAWD_DIR/HEARTBEAT.md" <<'HEARTBEAT'
+    # Add to HEARTBEAT.md
+    for heartbeat in "$HOME/.openclaw/workspace/HEARTBEAT.md" "$HOME/clawd/HEARTBEAT.md"; do
+        [ -f "$heartbeat" ] || continue
+        if ! grep -q "reddit-agent" "$heartbeat" 2>/dev/null; then
+            cat >> "$heartbeat" <<'HB'
 
 ## Reddit Agent
 - [ ] If reddit-agent cron hasn't run in >3h, run: reddit-agent
-- [ ] If user asks about Reddit performance: reddit-agent --digest
-HEARTBEAT
-            info "Added Reddit tasks to HEARTBEAT.md"
+- [ ] If user asks about Reddit: reddit-agent --digest
+HB
+            info "Added to HEARTBEAT.md"
         fi
-    fi
+        break
+    done
 fi
 
-# ─── Step 6: Health check ─────────────────────────────────────
+# ─── Done ─────────────────────────────────────────
 
 echo ""
-.venv/bin/python -m src.health 2>/dev/null || true
-
-# ─── Done ─────────────────────────────────────────────────────
-
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo -e "${GREEN}${BOLD}Reddit Agent installed!${NC}"
 echo ""
-echo "  reddit-agent              # Run one cycle"
-echo "  reddit-agent --feedback   # Check past comments"
-echo "  reddit-agent --digest     # Daily report"
+echo "  reddit-agent              Run one cycle"
+echo "  reddit-agent --feedback   Check past comments"
+echo "  reddit-agent --digest     Performance report"
+echo "  reddit-agent-update       Pull latest updates"
 echo ""
 echo "  Config:     $INSTALL_DIR/.env"
 echo "  Subreddits: $INSTALL_DIR/data/subreddits.yaml"
 echo ""
-if [ -d "$OPENCLAW_DIR" ]; then
-    echo "  OpenClaw: Skill + cron installed. Say 'run reddit agent' in chat."
+if [ -n "$OPENCLAW_SKILLS" ]; then
+    echo "  OpenClaw:   Skill + cron installed"
+    echo "              Say 'run the Reddit agent' in chat"
 fi
+echo ""
+echo "  Next: Set up cookies for VM access (see README.md)"
 echo ""

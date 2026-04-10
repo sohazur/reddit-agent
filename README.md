@@ -1,52 +1,82 @@
 # Reddit Agent
 
-Autonomous Reddit engagement agent for [OpenClaw](https://openclaw.ai). Runs on any VM, no screen needed.
+Autonomous Reddit engagement agent for [OpenClaw](https://openclaw.ai) and standalone use.
 
-Tell your OpenClaw agent:
+Runs on any machine (including headless VMs with no screen). Posts human-like comments on Reddit, builds karma on new accounts, learns from feedback, and improves over time.
 
-> "Install the Reddit agent from github.com/sohazur/reddit-agent"
+## Why This Exists
 
-It will ask for your Reddit username and password, set everything up, and start posting automatically.
+Reddit is one of the most valuable platforms for organic engagement — posts get indexed by Google, cited by AI models (ChatGPT, Gemini, Perplexity), and drive real traffic. But:
+
+- **Reddit's API is heavily restricted** — rate limits, pre-approval required, easy bot detection
+- **Datacenter IPs are blocked** — VMs can't access Reddit normally
+- **New accounts get auto-removed** — most subreddits require minimum karma
+- **AI-sounding comments get flagged** — needs human-like writing
+- **Manual posting doesn't scale** — you can't spend hours on Reddit every day
+
+Reddit Agent solves all of these.
 
 ## What It Does
 
-- Browses Reddit subreddits and finds relevant threads
-- Generates human-like comments using your OpenClaw's LLM
-- Posts via a stealth headless browser (no API restrictions)
-- Learns from feedback (karma, removals, shadowbans)
-- Auto-builds karma on new accounts before targeting competitive subreddits
-- Runs every 2 hours via OpenClaw cron
+```
+Every 2 hours (or on demand):
+  1. Checks account karma → picks subreddits it can post in
+  2. Browses subreddit feeds via stealth headless browser
+  3. AI evaluates each thread for engagement opportunity
+  4. AI generates a genuine, human-like comment
+  5. AI quality-gates the comment (naturalness, safety, subtlety)
+  6. Stealth browser types and posts with human-like delays
+  7. Verifies comment is visible (shadowban detection)
+  8. Tracks karma, learns from removals, improves next cycle
+```
 
-## Why Not Just Use OpenClaw Directly?
+### Karma Building (New Accounts)
 
-OpenClaw can browse the web, but this agent adds:
+New accounts start with zero karma and get auto-removed from most subreddits. The agent handles this automatically:
 
-| Feature | OpenClaw alone | With reddit-agent |
-|---|---|---|
-| Headless VM (no screen) | Needs display | Playwright headless |
-| Anti-detection | Basic browser | Stealth fingerprints, human typing |
-| Datacenter IP blocked | Blocked by Reddit | Cookie-based auth bypass |
-| Remember past posts | Forgets each session | SQLite persistent state |
-| Rate limiting | Manual | Auto cadence management |
-| Karma awareness | Manual | Auto-routes to right subreddits |
-| Shadowban detection | Manual | Auto-checks after posting |
-| Learning over time | No memory | Writes learnings.md, improves |
+1. **Phase 1** (0-20 karma): Posts genuine, helpful comments on open subreddits like r/AskReddit, r/NoStupidQuestions
+2. **Phase 2** (20-50 karma): Unlocks medium-barrier subreddits like r/Entrepreneur, r/digital_marketing
+3. **Phase 3** (50+ karma): Unlocks high-value subreddits like r/SEO, r/marketing
+
+The agent detects your karma at the start of each cycle and automatically routes to the right subreddits.
+
+### Anti-Detection
+
+- Randomized browser fingerprints (user agent, viewport, timezone)
+- Human-like typing delays (30-120ms per keystroke, variable)
+- Randomized posting intervals (15-30 min between comments)
+- Cookie-based authentication (bypasses datacenter IP blocks)
+- No Reddit API usage (pure browser interaction)
+
+### Learning Loop
+
+After each cycle, the agent:
+- Checks karma on past comments (what resonated?)
+- Detects removed comments (what did mods flag?)
+- Detects shadowbans (is the account compromised?)
+- Writes learnings to a persistent file
+- Uses learnings to generate better comments next time
 
 ## Install
 
-### Option 1: Tell your OpenClaw agent
+### For OpenClaw Users
 
+Tell your agent:
+
+> "Install the Reddit agent from github.com/sohazur/reddit-agent"
+
+The agent will handle everything. It will ask you for:
+- Reddit username and password
+
+That's it. No API keys needed (uses your OpenClaw's existing LLM). No Slack needed (reports through your chat).
+
+### One-Line Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sohazur/reddit-agent/main/install.sh | bash
 ```
-Install the Reddit agent from github.com/sohazur/reddit-agent
-```
 
-Your agent will clone the repo, run the installer, and ask you for:
-- Reddit username
-- Reddit password
-- Which subreddits to target (or use defaults)
-- How many comments per day (default: 5)
-
-### Option 2: Manual install
+### Manual Install
 
 ```bash
 git clone https://github.com/sohazur/reddit-agent.git ~/.reddit-agent
@@ -54,23 +84,35 @@ cd ~/.reddit-agent
 ./install.sh
 ```
 
-### Option 3: Non-interactive (for scripts/CI)
+### Non-Interactive (for scripts)
 
 ```bash
 REDDIT_USERNAME=myuser REDDIT_PASSWORD=mypass \
   ~/.reddit-agent/install.sh --non-interactive
 ```
 
-## Cookie Setup (Required for VMs)
+## Updating
 
-Reddit blocks datacenter IPs. To bypass this, export cookies from a browser where you're logged in:
+Updates pull the latest code from GitHub and reinstall:
 
-1. Log in to Reddit on your phone/laptop browser
-2. Install a cookie export extension (Cookie-Editor, EditThisCookie)
-3. Export cookies for reddit.com as JSON
+```bash
+reddit-agent-update
+```
+
+When you update the repo, everyone who runs `reddit-agent-update` gets the new features automatically.
+
+## Cookie Setup (Required for VMs/Cloud)
+
+Reddit blocks datacenter IPs aggressively. The agent uses your browser cookies to bypass this.
+
+**One-time setup:**
+
+1. Log in to Reddit on your phone or laptop browser
+2. Install [Cookie-Editor](https://cookie-editor.com/) browser extension
+3. Go to reddit.com, click the extension, export as JSON
 4. Save to `~/.reddit-agent/data/cookies.json`
 
-Or if you have `browser-cookie3` installed, the agent can extract cookies from Chrome automatically.
+Cookies last weeks. The agent refreshes them automatically when possible.
 
 ## Configuration
 
@@ -80,69 +122,151 @@ Edit `~/.reddit-agent/data/subreddits.yaml`:
 
 ```yaml
 subreddits:
-  - name: AskReddit           # Karma building (no min karma)
+  # Karma building (no requirements)
+  - name: AskReddit
     max_daily_comments: 2
     min_karma: 0
-    
-  - name: SEO                  # High-value (needs 50+ karma)
-    keywords: [AI search, GEO]
+    tone: "Casual, conversational."
+    notes: "No karma requirement. Great for building karma."
+
+  # High-value target (needs karma first)
+  - name: SEO
+    keywords: [AI search, GEO, llms.txt]
     max_daily_comments: 3
     min_karma: 50
+    tone: "Technical, data-driven."
+    notes: "Mods aggressive on self-promotion."
 ```
-
-The agent automatically skips subreddits you don't have enough karma for, and builds karma on easier ones first.
 
 ### Settings
 
 Edit `~/.reddit-agent/.env`:
 
-| Setting | Default | Description |
+| Setting | Default | What it does |
 |---|---|---|
-| `MAX_COMMENTS_PER_DAY` | 5 | Total daily limit |
-| `MIN_COMMENT_INTERVAL_MINUTES` | 20 | Cooldown between posts |
-| `QUALITY_THRESHOLD` | 7 | Min quality score (1-10) |
+| `MAX_COMMENTS_PER_DAY` | 5 | Daily posting limit across all subreddits |
+| `MIN_COMMENT_INTERVAL_MINUTES` | 20 | Minimum gap between posts (randomized up) |
+| `QUALITY_THRESHOLD` | 7 | Minimum AI quality score to post (1-10) |
+| `CYCLE_INTERVAL_HOURS` | 2 | How often the cron runs |
 
 ### Multiple Accounts
 
-Create separate `.env` files and run with:
+For multiple accounts, create separate installs:
 
 ```bash
-REDDIT_AGENT_ENV=~/.reddit-agent/.env.account2 reddit-agent
+REDDIT_AGENT_DIR=~/.reddit-agent-2 \
+REDDIT_USERNAME=account2 \
+REDDIT_PASSWORD=pass2 \
+  ~/.reddit-agent/install.sh --non-interactive
 ```
-
-*(Multi-account rotation coming in v2)*
 
 ## Commands
 
-```bash
-reddit-agent              # Run one engagement cycle
-reddit-agent --feedback   # Check past comments
-reddit-agent --digest     # Performance report
+| Command | What it does |
+|---|---|
+| `reddit-agent` | Run one full engagement cycle |
+| `reddit-agent --feedback` | Check karma and removals on past comments |
+| `reddit-agent --digest` | Print daily performance summary |
+| `reddit-agent-update` | Pull latest code and update |
+
+## How It Works (Technical)
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────┐
+│  Scheduler (OpenClaw cron / system cron)        │
+│  Triggers every 2 hours                         │
+└──────────────────┬──────────────────────────────┘
+                   ▼
+┌─────────────────────────────────────────────────┐
+│  Orchestrator (src/main.py)                     │
+│  ├── Karma check → filter subreddits           │
+│  ├── For each subreddit:                        │
+│  │   ├── Intel report (community analysis)      │
+│  │   ├── Browse feed → find threads             │
+│  │   ├── Evaluate threads (LLM)                 │
+│  │   ├── Generate comment (LLM)                 │
+│  │   ├── Quality gate (LLM)                     │
+│  │   └── Post via stealth browser               │
+│  ├── Feedback loop (check past comments)        │
+│  └── Update learnings                           │
+└──────────────────┬──────────────────────────────┘
+                   ▼
+┌─────────────────────────────────────────────────┐
+│  Browser Layer (Playwright, headless)           │
+│  ├── Stealth: fingerprint rotation, JS patches  │
+│  ├── Cookie auth: bypass IP blocks              │
+│  ├── Human typing: 30-120ms per keystroke       │
+│  └── Shadowban check: incognito verification    │
+└──────────────────┬──────────────────────────────┘
+                   ▼
+┌─────────────────────────────────────────────────┐
+│  Persistence (SQLite + files)                   │
+│  ├── threads table: what we've seen             │
+│  ├── comments table: what we've posted + karma  │
+│  ├── subreddit_intel: community analysis        │
+│  ├── learnings.md: what works and what doesn't  │
+│  └── cookies.json: browser session              │
+└─────────────────────────────────────────────────┘
 ```
 
-## How It Works
+### LLM Provider
+
+The agent auto-detects which LLM API is available:
+1. `ANTHROPIC_API_KEY` in environment → uses Claude
+2. `OPENAI_API_KEY` in environment → uses GPT-4
+3. Keys in `~/.bashrc` or `~/.profile` → reads from there
+4. OpenClaw shell env → imported automatically
+
+No manual API key configuration needed.
+
+### File Structure
 
 ```
-Every 2 hours:
-  1. Check account karma
-  2. Pick subreddits matching karma level
-  3. Browse subreddit feed (not search - more reliable)
-  4. LLM evaluates each thread (is it worth commenting?)
-  5. LLM generates a human-like comment
-  6. LLM quality-checks the comment (naturalness, safety)
-  7. Stealth browser types and posts the comment
-  8. Verifies comment is visible (shadowban check)
-  9. Logs everything to SQLite + learnings.md
-  10. Next cycle uses learnings to improve
+~/.reddit-agent/
+├── .env                          # Reddit credentials + settings
+├── data/
+│   ├── subreddits.yaml           # Target subreddit config
+│   ├── reddit.db                 # SQLite (threads, comments, karma)
+│   ├── cookies.json              # Browser session cookies
+│   ├── learnings.md              # What the agent has learned
+│   └── subreddit_reports/        # Per-subreddit intelligence
+├── prompts/                      # LLM prompt templates (editable)
+├── src/                          # Python source code
+└── tests/                        # Test suite
 ```
 
-## Architecture
+## OpenClaw Integration
 
-- **Python 3.12+** with Playwright for headless browsing
-- **Any LLM** — auto-detects Anthropic or OpenAI from environment
-- **SQLite** for persistent state (threads, comments, karma, learnings)
-- **OpenClaw native** — installs as a skill with cron scheduling
+When installed on an OpenClaw machine:
+
+- **Skill** registered at `~/.openclaw/agents/skills/reddit-agent/`
+- **Cron** runs every 2 hours
+- **Heartbeat** tasks added for monitoring
+- **Chat control**: "run the reddit agent", "how's reddit doing?", "add r/marketing"
+
+The agent reports results through your OpenClaw chat (WhatsApp, Telegram, Discord — whatever you use).
+
+## Safety & Ethics
+
+- **Rate limited** — conservative posting cadence to avoid bans
+- **Quality gated** — every comment scored before posting
+- **No vote manipulation** — only comments, never upvotes/downvotes
+- **No spam** — genuine, helpful comments that add value
+- **Shadowban detection** — stops posting if account is compromised
+- **Account karma respected** — doesn't post where it'll be auto-removed
+
+## Contributing
+
+PRs welcome. Key areas for contribution:
+
+- [ ] Multi-account rotation with proxy support
+- [ ] Auto cookie refresh when sessions expire
+- [ ] ClawHub package for one-click OpenClaw install
+- [ ] Web dashboard for monitoring
+- [ ] More subreddit presets
 
 ## License
 
-MIT
+MIT — use it however you want.
