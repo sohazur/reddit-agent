@@ -31,7 +31,7 @@ from pathlib import Path
 
 from src.browser.session import RedditSession
 from src.cadence.manager import CadenceManager
-from src.config import Config, load_config, DATA_DIR
+from src.config import Config, load_config, load_subreddits, DATA_DIR
 from src.db import (
     get_daily_summary,
     init_db,
@@ -97,6 +97,16 @@ async def run_cycle(config: Config) -> dict:
             send_alert(config, "WARNING", "Browser session unhealthy. Check credentials.")
             results["errors"] += 1
             return results
+
+        # CRITICAL: Check inbox FIRST for bans, removals, mod messages
+        from src.browser.inbox import check_inbox, apply_inbox_actions
+        inbox_messages = await check_inbox(session)
+        if inbox_messages:
+            actions = apply_inbox_actions(inbox_messages, config)
+            for action in actions:
+                log.warning(f"Inbox action: {action}")
+            # Reload subreddits config in case bans were applied
+            config.subreddits = load_subreddits()
 
         # Check account karma to filter subreddits
         from src.browser.karma import get_account_karma, can_post_to_subreddit as karma_check, reset_karma_cache

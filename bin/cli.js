@@ -271,6 +271,25 @@ switch (command) {
   case "--digest":
     runPython(["--digest"]);
     break;
+  case "objective":
+    (async () => {
+      const newObj = process.argv[3]
+        ? process.argv.slice(3).join(" ")
+        : await ask("New objective: ");
+      if (newObj && fs.existsSync(ENV_FILE)) {
+        let env = fs.readFileSync(ENV_FILE, "utf8");
+        if (env.includes("REDDIT_AGENT_OBJECTIVE=")) {
+          env = env.replace(/REDDIT_AGENT_OBJECTIVE=.*/, `REDDIT_AGENT_OBJECTIVE=${newObj}`);
+        } else {
+          env += `\nREDDIT_AGENT_OBJECTIVE=${newObj}\n`;
+        }
+        fs.writeFileSync(ENV_FILE, env, { mode: 0o600 });
+        console.log(`Objective updated: ${newObj}`);
+      } else {
+        console.log("Run reddit-agent setup first.");
+      }
+    })().catch(console.error);
+    break;
   case "update":
     update();
     break;
@@ -288,6 +307,7 @@ Commands:
   reddit-agent run         Run one engagement cycle (default)
   reddit-agent feedback    Check past comments for karma/removals
   reddit-agent digest      Print daily performance report
+  reddit-agent objective   Change your Reddit objective/goal
   reddit-agent update      Pull latest version
   reddit-agent status      Show config and health check
 
