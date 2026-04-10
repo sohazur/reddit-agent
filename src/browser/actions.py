@@ -319,6 +319,15 @@ async def post_comment(
     """Navigate to a thread and post a comment.
 
     Returns dict with 'success', 'comment_id' (if successful), 'error' (if failed).
+
+    Flow (tested against Reddit's modern shreddit UI):
+    1. Navigate to thread
+    2. Dismiss cookie popup
+    3. Scroll to bring composer into view
+    4. Click composer-host to activate/expand the input
+    5. Click contenteditable div to focus
+    6. Type comment with human-like delays
+    7. Click "Comment" button
     """
     page = session.page
     await page.goto(thread_url, wait_until="domcontentloaded")
@@ -337,91 +346,86 @@ async def post_comment(
         log.warning(f"Thread is locked: {thread_url}")
         return {"success": False, "error": "thread_locked"}
 
-    # Dismiss cookie popup if present
+    # Step 1: Dismiss cookie popup
     try:
         btns = await page.query_selector_all("button")
         for btn in btns:
-            txt = await btn.inner_text()
-            if "Accept All" in txt:
-                await btn.click()
-                await asyncio.sleep(1)
-                break
+            try:
+                txt = await btn.inner_text()
+                if "Accept All" in txt:
+                    await btn.click()
+                    await asyncio.sleep(1)
+                    break
+            except Exception:
+                continue
     except Exception:
         pass
 
-    # Find and click the comment box
+    # Step 2: Scroll to bring composer into viewport
+    await page.evaluate("window.scrollTo(0, 300)")
+    await asyncio.sleep(human_delay(500, 1000))
+
+    # Step 3: Click composer-host to activate/expand
     try:
-        # Modern Reddit: shreddit-composer contains a contenteditable div
-        # Try multiple selectors in order of specificity
-        comment_box = None
-        for selector in [
-            'shreddit-composer div[contenteditable="true"]',
-            'div[contenteditable="true"]',
-            'textarea',
-            '[name="body"]',
-        ]:
-            comment_box = await page.query_selector(selector)
-            if comment_box:
-                log.info(f"Found comment box via: {selector}")
-                break
-
-        if not comment_box:
-            # Last resort: click "Join the conversation" text to activate the input
-            join_el = await page.query_selector('comment-composer-host')
-            if join_el:
-                await join_el.click()
-                await asyncio.sleep(1)
-                comment_box = await page.query_selector('div[contenteditable="true"]')
-
-        if not comment_box:
-            log.error("Could not find comment box")
-            await _screenshot_error(page, "no_comment_box")
-            return {"success": False, "error": "comment_box_not_found"}
-
+        host = await page.query_selector("comment-composer-host")
+        if host:
+            bbox = await host.bounding_box()
+            if bbox:
+                await page.mouse.click(
+                    bbox["x"] + bbox["width"] / 2,
+                    bbox["y"] + bbox["height"] / 2,
+                )
+                log.info("Clicked composer host to activate")
+                await asyncio.sleep(human_delay(1000, 2000))
     except Exception:
-        log.error("Could not find comment box")
+        pass
+
+    # Step 4: Find and click the contenteditable comment box
+    comment_box = None
+    for selector in [
+        'div[contenteditable="true"]',
+        'shreddit-composer div[contenteditable="true"]',
+        "textarea",
+    ]:
+        el = await page.query_selector(selector)
+        if el and await el.is_visible():
+            comment_box = el
+            log.info(f"Found visible comment box: {selector}")
+            break
+
+    if not comment_box:
+        log.error("Could not find visible comment box")
         await _screenshot_error(page, "no_comment_box")
         return {"success": False, "error": "comment_box_not_found"}
 
-    # Click to focus
     await comment_box.click()
-    await asyncio.sleep(human_delay(500, 1000))
+    await asyncio.sleep(human_delay(300, 600))
 
-    # Type the comment with human-like delays
+    # Step 5: Type the comment with human-like delays
     for char in comment_text:
         await page.keyboard.type(char, delay=human_typing_delay() * 1000)
 
     await asyncio.sleep(human_delay(1000, 2000))
 
-    # Find and click the submit button
-    try:
-        submit_btn = None
-        # Search all buttons for one that says "Comment"
-        btns = await page.query_selector_all("button")
-        for btn in btns:
+    # Step 6: Find and click the "Comment" submit button
+    submit_btn = None
+    btns = await page.query_selector_all("button")
+    for btn in btns:
+        try:
             txt = (await btn.inner_text()).strip()
-            if txt == "Comment" or txt == "Reply":
+            if txt == "Comment" and await btn.is_visible():
                 submit_btn = btn
-                log.info(f"Found submit button: '{txt}'")
                 break
+        except Exception:
+            continue
 
-        if not submit_btn:
-            # Try within the shreddit-composer
-            submit_btn = await page.query_selector(
-                'shreddit-composer button[type="submit"], '
-                'faceplate-form button[type="submit"]'
-            )
+    if not submit_btn:
+        log.error("Could not find visible Comment button")
+        await _screenshot_error(page, "no_submit_button")
+        return {"success": False, "error": "submit_button_not_found"}
 
-        if submit_btn:
-            await submit_btn.click()
-        else:
-            log.error("Could not find submit button")
-            await _screenshot_error(page, "no_submit_button")
-            return {"success": False, "error": "submit_button_not_found"}
-    except Exception as e:
-        log.error(f"Submit button error: {e}")
-        await _screenshot_error(page, "submit_error")
-        return {"success": False, "error": str(e)}
+    log.info("Clicking Comment button")
+    await submit_btn.click()
 
     # Wait for the comment to appear
     await asyncio.sleep(human_delay(3000, 5000))
