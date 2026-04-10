@@ -3,10 +3,9 @@
 import json
 from datetime import datetime
 
-import anthropic
-
 from src.config import Config, SubredditConfig, load_prompt, SUBREDDIT_REPORTS_DIR
 from src.db import get_connection
+from src.llm import call_llm
 from src.log import get_logger
 
 log = get_logger("subreddit_intel")
@@ -18,12 +17,7 @@ async def generate_intel_report(
     subreddit: SubredditConfig,
     force: bool = False,
 ) -> dict | None:
-    """Generate an intelligence report for a subreddit.
-
-    Checks if a recent report exists (< 7 days). If so, returns it
-    unless force=True.
-    """
-    # Check for existing recent report
+    """Generate an intelligence report for a subreddit."""
     if not force:
         existing = _get_existing_report(subreddit.name)
         if existing:
@@ -32,7 +26,6 @@ async def generate_intel_report(
 
     log.info(f"Generating intel report for r/{subreddit.name}")
 
-    # Gather data from the subreddit
     from src.browser.actions import extract_subreddit_data
 
     try:
@@ -61,39 +54,25 @@ async def generate_intel_report(
         sidebar_rules=sidebar_rules[:2000],
     )
 
-    client = anthropic.Anthropic(api_key=config.anthropic_api_key)
-
     try:
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=800,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        text = call_llm(prompt, max_tokens=800)
 
-        text = response.content[0].text.strip()
         if "```" in text:
             text = text.split("```json")[-1].split("```")[0].strip()
-            if not text:
-                text = response.content[0].text.split("```")[-2].strip()
 
         report = json.loads(text)
-
-        # Save to DB
         _save_report(subreddit.name, report, len(sub_data.get("posts", [])))
-
-        # Save human-readable report to file
         _save_report_file(subreddit.name, report)
 
         log.info(f"Intel report generated for r/{subreddit.name}")
         return report
 
-    except (json.JSONDecodeError, anthropic.APIError) as e:
+    except (json.JSONDecodeError, Exception) as e:
         log.error(f"Failed to generate intel report: {e}")
         return None
 
 
 def _get_existing_report(subreddit_name: str) -> dict | None:
-    """Get an existing report if it's less than 7 days old."""
     with get_connection() as conn:
         row = conn.execute(
             """SELECT report_json, generated_at FROM subreddit_intel
@@ -101,14 +80,12 @@ def _get_existing_report(subreddit_name: str) -> dict | None:
                AND julianday('now') - julianday(generated_at) < 7""",
             (subreddit_name,),
         ).fetchone()
-
         if row:
             return json.loads(row[0])
     return None
 
 
 def _save_report(subreddit_name: str, report: dict, post_count: int) -> None:
-    """Save report to SQLite."""
     with get_connection() as conn:
         conn.execute(
             """INSERT OR REPLACE INTO subreddit_intel
@@ -120,7 +97,6 @@ def _save_report(subreddit_name: str, report: dict, post_count: int) -> None:
 
 
 def _save_report_file(subreddit_name: str, report: dict) -> None:
-    """Save a human-readable report to the subreddit_reports directory."""
     SUBREDDIT_REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     path = SUBREDDIT_REPORTS_DIR / f"{subreddit_name}.md"
 

@@ -1,11 +1,10 @@
-"""Pre-post quality gate using Claude API."""
+"""Pre-post quality gate using LLM."""
 
 import json
 from dataclasses import dataclass
 
-import anthropic
-
 from src.config import Config, load_prompt
+from src.llm import call_llm
 from src.log import get_logger
 
 log = get_logger("quality_scorer")
@@ -28,10 +27,7 @@ async def score_comment(
     subreddit_name: str,
     thread_title: str,
 ) -> QualityScore:
-    """Score a comment before posting.
-
-    Returns a QualityScore. The comment should only be posted if passed=True.
-    """
+    """Score a comment before posting. Only post if passed=True."""
     prompt = load_prompt(
         "quality_check",
         comment_text=comment_text,
@@ -39,20 +35,11 @@ async def score_comment(
         thread_title=thread_title,
     )
 
-    client = anthropic.Anthropic(api_key=config.anthropic_api_key)
-
     try:
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=300,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        text = call_llm(prompt, max_tokens=300)
 
-        text = response.content[0].text.strip()
         if "```" in text:
             text = text.split("```json")[-1].split("```")[0].strip()
-            if not text:
-                text = response.content[0].text.split("```")[-2].strip()
 
         data = json.loads(text)
 
@@ -75,9 +62,7 @@ async def score_comment(
 
     except json.JSONDecodeError as e:
         log.error(f"Failed to parse quality score: {e}")
-        # Fail open — let the comment through but flag it
         return QualityScore(5, 5, 5, 5, 5.0, False, "Failed to parse quality response")
-    except anthropic.APIError as e:
-        log.error(f"Claude API error during quality check: {e}")
-        # Fail closed on API errors — don't post without quality check
+    except Exception as e:
+        log.error(f"LLM error during quality check: {e}")
         return QualityScore(0, 0, 0, 0, 0.0, False, f"API error: {e}")

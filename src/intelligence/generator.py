@@ -1,10 +1,7 @@
-"""Generate Reddit comments using Claude API."""
-
-from pathlib import Path
-
-import anthropic
+"""Generate Reddit comments using LLM."""
 
 from src.config import Config, SubredditConfig, load_prompt, LEARNINGS_PATH
+from src.llm import call_llm
 from src.log import get_logger
 
 log = get_logger("generator")
@@ -16,7 +13,6 @@ def _load_learnings(subreddit_name: str) -> str:
         return "No prior learnings available yet."
 
     content = LEARNINGS_PATH.read_text()
-    # Extract sections relevant to this subreddit
     lines = content.split("\n")
     relevant = []
     capturing = False
@@ -31,10 +27,8 @@ def _load_learnings(subreddit_name: str) -> str:
             relevant.append(line)
 
     if relevant:
-        # Return the last 10 relevant entries (most recent learnings)
         return "\n".join(relevant[-30:])
 
-    # If no subreddit-specific learnings, return general ones
     return content[-2000:] if len(content) > 2000 else content
 
 
@@ -59,14 +53,10 @@ async def generate_comment(
     thread_body: str,
     thread_comments: str,
 ) -> str:
-    """Generate a human-like comment for a Reddit thread.
-
-    Returns the comment text, or empty string on failure.
-    """
+    """Generate a human-like comment for a Reddit thread."""
     learnings = _load_learnings(subreddit.name)
     intel = _load_subreddit_intel(subreddit.name)
 
-    # Enhance tone guidance with intel if available
     tone = subreddit.tone
     if intel:
         tone = f"{subreddit.tone}\n\nSubreddit intelligence: {intel}"
@@ -82,34 +72,23 @@ async def generate_comment(
         learnings_context=learnings,
     )
 
-    client = anthropic.Anthropic(api_key=config.anthropic_api_key)
-
     try:
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=500,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        comment = call_llm(prompt, max_tokens=500)
 
-        comment = response.content[0].text.strip()
-
-        # Basic sanity checks
         if not comment:
             log.error("Generated empty comment")
             return ""
 
         if len(comment) > 2000:
-            # Reddit has a 10K limit but we want short comments
             comment = comment[:2000]
             log.info("Trimmed comment to 2000 chars")
 
-        # Remove any accidental markdown formatting
         if comment.startswith('"') and comment.endswith('"'):
             comment = comment[1:-1]
 
         log.info(f"Generated comment ({len(comment)} chars): {comment[:80]}...")
         return comment
 
-    except anthropic.APIError as e:
-        log.error(f"Claude API error during generation: {e}")
+    except Exception as e:
+        log.error(f"LLM error during generation: {e}")
         return ""

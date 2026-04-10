@@ -8,11 +8,11 @@ on Slack if it can't solve within 2 attempts.
 import asyncio
 import base64
 
-import anthropic
 from playwright.async_api import Page
 
 from src.browser.stealth import human_delay
 from src.config import Config, SCREENSHOTS_DIR
+from src.llm import call_llm
 from src.log import get_logger
 
 log = get_logger("captcha")
@@ -123,41 +123,26 @@ async def _try_vision_solve(page: Page, config: Config) -> bool:
         screenshot_bytes = await page.screenshot()
         screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
 
-        client = anthropic.Anthropic(api_key=config.anthropic_api_key)
-
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+        instruction = call_llm(
+            prompt=(
+                "I'm trying to solve a CAPTCHA on this page. "
+                "What type of CAPTCHA is it? What do I need to do? "
+                "If it's a checkbox, say 'CLICK_CHECKBOX'. "
+                "If it's an image selection task (e.g., 'select all images with traffic lights'), "
+                "list the grid positions (1-9, left-to-right, top-to-bottom) I should click. "
+                "Format: 'CLICK_GRID: 1,4,7' "
+                "If you can't determine how to solve it, say 'CANNOT_SOLVE'."
+            ),
             max_tokens=500,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/png",
-                                "data": screenshot_b64,
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": (
-                                "I'm trying to solve a CAPTCHA on this page. "
-                                "What type of CAPTCHA is it? What do I need to do? "
-                                "If it's a checkbox, say 'CLICK_CHECKBOX'. "
-                                "If it's an image selection task (e.g., 'select all images with traffic lights'), "
-                                "list the grid positions (1-9, left-to-right, top-to-bottom) I should click. "
-                                "Format: 'CLICK_GRID: 1,4,7' "
-                                "If you can't determine how to solve it, say 'CANNOT_SOLVE'."
-                            ),
-                        },
-                    ],
-                }
-            ],
+            images=[{
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": screenshot_b64,
+                },
+            }],
         )
-
-        instruction = response.content[0].text.strip()
         log.info(f"Vision analysis: {instruction}")
 
         if "CANNOT_SOLVE" in instruction:
