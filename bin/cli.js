@@ -260,6 +260,22 @@ switch (command) {
   case "setup":
     setup().catch(console.error);
     break;
+  case "setup-password":
+    (async () => {
+      if (!fs.existsSync(ENV_FILE)) {
+        console.log("Run reddit-agent setup first.");
+        process.exit(1);
+      }
+      const rl3 = readline.createInterface({ input: process.stdin, output: process.stdout });
+      const pw = await new Promise((resolve) => {
+        rl3.question("Reddit password: ", (ans) => { rl3.close(); resolve(ans.trim()); });
+      });
+      let env = fs.readFileSync(ENV_FILE, "utf8");
+      env = env.replace(/REDDIT_PASSWORD=.*/, `REDDIT_PASSWORD=${pw}`);
+      fs.writeFileSync(ENV_FILE, env, { mode: 0o600 });
+      console.log("Password updated securely.");
+    })().catch(console.error);
+    break;
   case "run":
     runPython([]);
     break;
