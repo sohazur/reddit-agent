@@ -163,6 +163,36 @@ async def run_cycle(config: Config) -> dict:
                     results["errors"] += 1
                     continue
 
+        # Engagement: upvote, browse, reply to replies
+        from src.browser.engage import upvote_posts, reply_to_replies, browse_subreddit
+
+        if config.engage_upvote:
+            log.info("Upvoting posts for natural activity")
+            for sub in config.subreddits[:3]:
+                if sub.min_karma <= account_karma:
+                    try:
+                        await upvote_posts(session, sub.name, count=2)
+                    except Exception as e:
+                        log.warning(f"Upvote failed in r/{sub.name}: {e}")
+
+        if config.engage_reply:
+            log.info("Checking for replies to our comments")
+            try:
+                await reply_to_replies(session, config)
+            except Exception as e:
+                log.warning(f"Reply check failed: {e}")
+
+        if config.engage_browse:
+            log.info("Browsing for natural activity")
+            import random
+            browse_subs = [s for s in config.subreddits if s.min_karma <= account_karma]
+            if browse_subs:
+                sub = random.choice(browse_subs)
+                try:
+                    await browse_subreddit(session, sub.name)
+                except Exception as e:
+                    log.warning(f"Browse failed: {e}")
+
         # Run feedback loop
         log.info("Running feedback loop")
         feedback = await run_feedback_loop(config, session)

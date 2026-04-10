@@ -54,6 +54,13 @@ class Config:
     # Objective — the user's goal for Reddit engagement
     objective: str = ""
 
+    # Engagement modes
+    engage_comment: bool = True
+    engage_upvote: bool = True
+    engage_reply: bool = True
+    engage_post: bool = False
+    engage_browse: bool = True
+
     # Subreddits
     subreddits: list[SubredditConfig] = field(default_factory=list)
 
@@ -132,6 +139,11 @@ def load_config() -> Config:
         quality_threshold=int(os.environ.get("QUALITY_THRESHOLD", "7")),
         cycle_interval_hours=int(os.environ.get("CYCLE_INTERVAL_HOURS", "2")),
         objective=os.environ.get("REDDIT_AGENT_OBJECTIVE", ""),
+        engage_comment=os.environ.get("ENGAGE_COMMENT", "true").lower() == "true",
+        engage_upvote=os.environ.get("ENGAGE_UPVOTE", "true").lower() == "true",
+        engage_reply=os.environ.get("ENGAGE_REPLY", "true").lower() == "true",
+        engage_post=os.environ.get("ENGAGE_POST", "false").lower() == "true",
+        engage_browse=os.environ.get("ENGAGE_BROWSE", "true").lower() == "true",
         subreddits=load_subreddits(),
         ai_marketing_tracker_path=Path(tracker_path) if tracker_path else None,
         log_level=os.environ.get("LOG_LEVEL", "INFO"),

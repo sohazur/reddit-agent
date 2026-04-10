@@ -151,6 +151,10 @@ async function setup() {
 
   const maxDaily = (await ask("Max comments/day [5]: ")) || "5";
 
+  console.log();
+  console.log("Engagement modes (press Enter for defaults):");
+  const engagePost = (await ask("Create original posts? [n]: ")) || "n";
+
   // Write .env
   const envContent = [
     `REDDIT_USERNAME=${username}`,
@@ -160,6 +164,11 @@ async function setup() {
     `MIN_COMMENT_INTERVAL_MINUTES=20`,
     `QUALITY_THRESHOLD=7`,
     `CYCLE_INTERVAL_HOURS=2`,
+    `ENGAGE_COMMENT=true`,
+    `ENGAGE_UPVOTE=true`,
+    `ENGAGE_REPLY=true`,
+    `ENGAGE_POST=${engagePost.toLowerCase().startsWith("y") ? "true" : "false"}`,
+    `ENGAGE_BROWSE=true`,
     `LOG_LEVEL=INFO`,
     `SCREENSHOT_ON_ERROR=true`,
   ].join("\n");
