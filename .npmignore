@@ -2,7 +2,9 @@
 .git/
 .env
 __pycache__/
+**/__pycache__/
 *.pyc
+**/*.pyc
 data/reddit.db
 data/screenshots/
 data/learnings.md
@@ -12,3 +14,5 @@ data/cookies.json
 tests/
 .DS_Store
 tasks/
+*.tgz
+node_modules/

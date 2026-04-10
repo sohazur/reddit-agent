@@ -94,7 +94,13 @@ def call_llm(
 
     Auto-detects the provider and uses the appropriate SDK.
     Supports optional image inputs for vision tasks (CAPTCHA solving).
+    Injects current date context so the LLM has accurate temporal awareness.
     """
+    from datetime import datetime
+
+    date_context = f"\n\n[Current date: {datetime.utcnow().strftime('%B %d, %Y')}. Write as if you are posting today.]\n"
+    prompt = prompt + date_context
+
     provider, api_key = _detect_provider()
 
     if provider == "anthropic":
@@ -135,7 +141,8 @@ def _call_openai(
     from openai import OpenAI
 
     client = OpenAI(api_key=api_key)
-    model = model or "gpt-4o"
+    # Use the latest available model for up-to-date knowledge
+    model = model or "gpt-4.1"
 
     messages_content = []
     if images:

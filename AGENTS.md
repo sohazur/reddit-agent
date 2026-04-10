@@ -1,6 +1,6 @@
-# AGENTS.md — Reddit Agent
+# AGENTS.md — reddit-agent
 
-Instructions for AI agents (Claude Code, OpenClaw, or any LLM agent) to install, configure, and operate the Reddit Agent.
+Instructions for AI agents (Claude Code, OpenClaw, or any LLM agent) to install, configure, and operate reddit-agent. Read this file before doing anything with the Reddit agent.
 
 ## What This Is
 
