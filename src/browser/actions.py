@@ -36,58 +36,51 @@ async def extract_search_results(
     results = await page.evaluate(f"""
         () => {{
             const posts = [];
-            // Try multiple selectors for Reddit's different layouts
-            const postElements = document.querySelectorAll(
-                'div[data-testid="post-container"], '
-                + 'shreddit-post, '
-                + 'article, '
-                + 'div.Post'
-            );
 
-            for (const el of postElements) {{
+            // Primary: shreddit-post elements (modern Reddit)
+            const shredditPosts = document.querySelectorAll('shreddit-post');
+            for (const el of shredditPosts) {{
                 if (posts.length >= {limit}) break;
 
-                // Extract post ID
-                const idAttr = el.getAttribute('id')
-                    || el.getAttribute('data-fullname')
-                    || el.getAttribute('data-post-id')
-                    || '';
-                const id = idAttr.replace('t3_', '');
+                const id = el.getAttribute('id') || el.getAttribute('thingid') || '';
+                const title = el.getAttribute('post-title') || '';
+                const permalink = el.getAttribute('permalink') || '';
+                const score = parseInt(el.getAttribute('score') || '0') || 0;
+                const commentCount = parseInt(el.getAttribute('comment-count') || '0') || 0;
 
-                // Extract title
-                const titleEl = el.querySelector(
-                    'h3, [slot="title"], a[data-click-id="body"]'
-                );
-                const title = titleEl ? titleEl.textContent.trim() : '';
-
-                // Extract URL
-                const linkEl = el.querySelector(
-                    'a[href*="/comments/"], a[data-click-id="body"]'
-                );
-                let url = linkEl ? linkEl.getAttribute('href') : '';
+                let url = permalink;
                 if (url && !url.startsWith('http')) {{
                     url = 'https://www.reddit.com' + url;
                 }}
 
-                // Extract score
-                const scoreEl = el.querySelector(
-                    '[data-testid="post-score"], [data-click-id="upvote"] + span, '
-                    + 'shreddit-post-score, .score'
-                );
-                const scoreText = scoreEl ? scoreEl.textContent.trim() : '0';
-                const score = parseInt(scoreText.replace(/[^0-9-]/g, '')) || 0;
-
-                // Extract comment count
-                const commentEl = el.querySelector(
-                    'a[data-click-id="comments"], [data-testid="comment-count"]'
-                );
-                const commentText = commentEl ? commentEl.textContent.trim() : '0';
-                const commentCount = parseInt(commentText.replace(/[^0-9]/g, '')) || 0;
-
-                if (title && id) {{
-                    posts.push({{ id, title, url, score, comment_count: commentCount }});
+                if (title && (id || url)) {{
+                    posts.push({{
+                        id: id.replace('t3_', ''),
+                        title,
+                        url,
+                        score,
+                        comment_count: commentCount
+                    }});
                 }}
             }}
+
+            // Fallback: older Reddit layouts
+            if (posts.length === 0) {{
+                const oldPosts = document.querySelectorAll('div[data-testid="post-container"], div.Post, article');
+                for (const el of oldPosts) {{
+                    if (posts.length >= {limit}) break;
+                    const titleEl = el.querySelector('h3, [slot="title"]');
+                    const title = titleEl ? titleEl.textContent.trim() : '';
+                    const linkEl = el.querySelector('a[href*="comments"]');
+                    let url = linkEl ? linkEl.getAttribute('href') : '';
+                    if (url && !url.startsWith('http')) url = 'https://www.reddit.com' + url;
+                    const id = el.getAttribute('id') || el.getAttribute('data-fullname') || '';
+                    if (title) {{
+                        posts.push({{ id: id.replace('t3_', ''), title, url, score: 0, comment_count: 0 }});
+                    }}
+                }}
+            }}
+
             return posts;
         }}
     """)
@@ -199,30 +192,30 @@ async def extract_subreddit_data(
     posts = await page.evaluate("""
         () => {
             const posts = [];
-            const els = document.querySelectorAll(
-                'div[data-testid="post-container"], shreddit-post, article'
-            );
+            // Modern Reddit uses shreddit-post web components with attributes
+            const els = document.querySelectorAll('shreddit-post');
             for (const el of els) {
                 if (posts.length >= 30) break;
-                const titleEl = el.querySelector('h3, [slot="title"]');
-                const scoreEl = el.querySelector(
-                    '[data-testid="post-score"], shreddit-post-score'
-                );
-                const commentEl = el.querySelector(
-                    'a[data-click-id="comments"], [data-testid="comment-count"]'
-                );
-                const linkEl = el.querySelector('a[href*="/comments/"]');
-
                 posts.push({
-                    title: titleEl ? titleEl.textContent.trim() : '',
-                    score: scoreEl
-                        ? parseInt(scoreEl.textContent.replace(/[^0-9-]/g, '')) || 0
-                        : 0,
-                    comment_count: commentEl
-                        ? parseInt(commentEl.textContent.replace(/[^0-9]/g, '')) || 0
-                        : 0,
-                    url: linkEl ? linkEl.getAttribute('href') : '',
+                    title: el.getAttribute('post-title') || '',
+                    score: parseInt(el.getAttribute('score') || '0') || 0,
+                    comment_count: parseInt(el.getAttribute('comment-count') || '0') || 0,
+                    url: el.getAttribute('permalink') || '',
                 });
+            }
+            // Fallback for older layouts
+            if (posts.length === 0) {
+                const oldEls = document.querySelectorAll('div[data-testid="post-container"], article');
+                for (const el of oldEls) {
+                    if (posts.length >= 30) break;
+                    const titleEl = el.querySelector('h3, [slot="title"]');
+                    posts.push({
+                        title: titleEl ? titleEl.textContent.trim() : '',
+                        score: 0,
+                        comment_count: 0,
+                        url: '',
+                    });
+                }
             }
             return posts;
         }
