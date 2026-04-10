@@ -68,6 +68,26 @@ def _require_env(key: str) -> str:
     return val
 
 
+def _get_api_key() -> str:
+    """Get an LLM API key from environment.
+
+    Checks multiple sources in order:
+    1. ANTHROPIC_API_KEY from .env or environment
+    2. OPENAI_API_KEY as fallback (for OpenClaw instances using OpenAI)
+    3. "agent-provided" placeholder (OpenClaw agent handles LLM calls)
+    """
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if key and key != "agent-provided":
+        return key
+
+    # OpenClaw may have the key in its shell env
+    key = os.environ.get("OPENAI_API_KEY", "")
+    if key:
+        return key
+
+    return ""
+
+
 def load_subreddits() -> list[SubredditConfig]:
     """Load subreddit configuration from YAML."""
     config_path = DATA_DIR / "subreddits.yaml"
@@ -98,7 +118,7 @@ def load_config() -> Config:
             username=_require_env("REDDIT_USERNAME"),
             password=_require_env("REDDIT_PASSWORD"),
         ),
-        anthropic_api_key=_require_env("ANTHROPIC_API_KEY"),
+        anthropic_api_key=_get_api_key(),
         slack_webhook_url=os.environ.get("SLACK_WEBHOOK_URL", ""),
         max_comments_per_day=int(os.environ.get("MAX_COMMENTS_PER_DAY", "5")),
         min_comment_interval_minutes=int(

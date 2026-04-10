@@ -1,74 +1,93 @@
 ---
 name: reddit-agent
-description: "Autonomous Reddit engagement agent. Scans subreddits, evaluates threads, generates human-like comments, posts via browser, and learns from feedback. Commands: reddit-agent (run cycle), reddit-agent --feedback (check past comments), reddit-agent --digest (daily report)."
-allowed-tools: Bash(reddit-agent *), Bash(cat ~/.reddit-agent/data/*), Bash(~/.reddit-agent/.venv/bin/python *), Read, Edit
+description: "Autonomous Reddit engagement agent. Scans subreddits, generates human-like comments, posts via stealth browser, learns from feedback. Install: clone repo + run install.sh. Only needs Reddit username/password. Commands: reddit-agent, reddit-agent --feedback, reddit-agent --digest. Use when: user wants Reddit automation, Reddit posting, Reddit engagement, check Reddit performance."
+allowed-tools: Bash(reddit-agent *), Bash(cat ~/.reddit-agent/data/*), Bash(~/.reddit-agent/.venv/bin/python *), Bash(cd ~/.reddit-agent *), Read, Edit
 ---
 
-# Reddit Agent — OpenClaw Skill
+# Reddit Agent
 
-Autonomous Reddit engagement agent. Browser-based (no API needed). Learns from feedback.
+Autonomous Reddit engagement agent. Browser-based posting with AI-generated comments.
 
-## Install
+## First-Time Setup
+
+When the user says "install the reddit agent" or similar:
+
+1. **Ask for Reddit credentials only** — username and password. Nothing else is needed.
+2. Run the installer:
 
 ```bash
-# From the repo:
-cd /path/to/reddit-agent && ./install.sh
-
-# Or non-interactive (for agents):
-REDDIT_USERNAME=myuser REDDIT_PASSWORD=mypass ANTHROPIC_API_KEY=sk-ant-... ./install.sh --non-interactive
+REDDIT_USERNAME="<username>" REDDIT_PASSWORD="<password>" \
+  ~/.reddit-agent/install.sh --non-interactive
 ```
 
-## Commands
+Or if not yet cloned:
+```bash
+git clone --depth 1 https://github.com/sohazur/reddit-agent.git ~/.reddit-agent
+cd ~/.reddit-agent && REDDIT_USERNAME="<username>" REDDIT_PASSWORD="<password>" ./install.sh --non-interactive
+```
+
+3. Verify: `reddit-agent --digest` (should output a report, even if empty on first run)
+
+**DO NOT ask for:**
+- Anthropic/OpenAI API key (you already have LLM access)
+- Slack webhook (you ARE the notification channel — just message the user)
+- Any other credentials
+
+## Running
 
 ```bash
 reddit-agent              # Run one engagement cycle
-reddit-agent --feedback   # Check past comments for karma/removals
-reddit-agent --digest     # Send daily Slack digest
+reddit-agent --feedback   # Check karma on past comments, detect shadowbans
+reddit-agent --digest     # Generate daily performance report
 ```
 
-## What It Does Per Cycle
-
-1. **Scans** target subreddits for relevant threads (browser-based)
-2. **Studies** subreddit culture (generates intelligence report)
-3. **Evaluates** each thread (Claude API scores 0-10)
-4. **Generates** human-like comment (Claude API with brand voice)
-5. **Quality gates** the comment (naturalness, relevance, safety, subtlety)
-6. **Posts** via stealth browser with human-like typing delays
-7. **Verifies** comment is visible (shadowban detection)
-8. **Learns** from feedback (karma, removals, mod actions)
+After running, **report the results directly to the user** in chat. You are the Slack replacement.
 
 ## Configuration
 
-Edit `~/.reddit-agent/.env`:
-| Variable | Default | Description |
-|---|---|---|
-| MAX_COMMENTS_PER_DAY | 5 | Daily posting limit |
-| MIN_COMMENT_INTERVAL_MINUTES | 20 | Cooldown between posts |
-| QUALITY_THRESHOLD | 7 | Min quality score (1-10) |
+**Subreddits** — edit `~/.reddit-agent/data/subreddits.yaml`:
+```yaml
+subreddits:
+  - name: SEO
+    keywords: [AI search, GEO, llms.txt]
+    max_daily_comments: 3
+    tone: "Technical, data-driven."
+    notes: "No self-promotion."
+```
 
-Edit `~/.reddit-agent/data/subreddits.yaml` for target subreddits.
+When the user says "add r/marketing" or "post in r/SEO", edit this file.
+
+**Posting limits** — edit `~/.reddit-agent/.env`:
+- `MAX_COMMENTS_PER_DAY` — default 5
+- `MIN_COMMENT_INTERVAL_MINUTES` — default 20
+- `QUALITY_THRESHOLD` — default 7 (1-10 scale)
 
 ## Monitoring
 
-| File | What |
+Read these files to report on performance:
+
+| What | Command |
 |---|---|
-| `data/learnings.md` | What the agent learned from feedback |
-| `data/subreddit_reports/*.md` | Per-subreddit intelligence reports |
-| `data/reddit.db` | Full SQLite history |
-| `data/screenshots/` | Error screenshots |
+| What the agent learned | `cat ~/.reddit-agent/data/learnings.md` |
+| Subreddit intel report | `cat ~/.reddit-agent/data/subreddit_reports/SEO.md` |
+| Recent activity | `~/.reddit-agent/.venv/bin/python -c "from src.db import get_daily_summary; import json; print(json.dumps(get_daily_summary(), indent=2))"` |
+| Error screenshots | `ls ~/.reddit-agent/data/screenshots/` |
 
-## Safe Posting Cadence
+## Responding to User Requests
 
-- New accounts: 2-3 comments/day max
-- Established (3-4 months): 10-20/day safe
-- Min 15-minute spacing, randomized
-- Per-subreddit limits enforced
+| User says | What to do |
+|---|---|
+| "Install the reddit agent" | Ask for Reddit username/password, run installer |
+| "Run the reddit bot" | `reddit-agent` then report results |
+| "How's Reddit going?" | `reddit-agent --digest` then summarize |
+| "Add r/marketing" | Edit subreddits.yaml, add the subreddit |
+| "Post more often" | Edit .env, increase MAX_COMMENTS_PER_DAY |
+| "Stop posting" | Edit .env, set MAX_COMMENTS_PER_DAY=0 |
+| "What did you learn?" | `cat ~/.reddit-agent/data/learnings.md` |
+| "Check for shadowbans" | `reddit-agent --feedback` then report |
 
-## When to Use
+## How It Works (for your context)
 
-Use this skill when the user asks to:
-- Post on Reddit / engage with Reddit threads
-- Check Reddit performance / karma / engagement
-- Get a Reddit activity report
-- Start/stop/configure the Reddit agent
-- Add or remove target subreddits
+Each cycle: scans target subreddits via browser → evaluates threads (Claude) → generates human-like comments → quality-gates them (naturalness, subtlety) → posts via stealth headless browser → later checks karma and shadowbans → writes learnings for next time.
+
+Anti-detection: randomized user agents, human typing delays, viewport rotation, 15-20min spacing between posts.

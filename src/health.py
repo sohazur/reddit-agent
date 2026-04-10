@@ -14,10 +14,17 @@ from src.config import DATA_DIR, PROMPTS_DIR
 def check_env_vars() -> list[str]:
     """Check required environment variables."""
     issues = []
-    required = ["REDDIT_USERNAME", "REDDIT_PASSWORD", "ANTHROPIC_API_KEY"]
-    for var in required:
+    # Only Reddit credentials are truly required
+    for var in ["REDDIT_USERNAME", "REDDIT_PASSWORD"]:
         if not os.environ.get(var):
             issues.append(f"Missing env var: {var}")
+
+    # API key is optional if OpenClaw agent handles LLM calls
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key or api_key == "agent-provided":
+        openai_key = os.environ.get("OPENAI_API_KEY", "")
+        if not openai_key:
+            issues.append("No LLM API key found (ANTHROPIC_API_KEY or OPENAI_API_KEY). OK if OpenClaw agent provides it.")
     return issues
 
 

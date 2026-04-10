@@ -45,6 +45,17 @@ class TestLoadConfig:
             assert config.anthropic_api_key == "sk-test"
             assert config.max_comments_per_day == 5  # default
 
+    def test_loads_without_api_key(self):
+        """Should load config even without API key (OpenClaw provides it)."""
+        env = {
+            "REDDIT_USERNAME": "test",
+            "REDDIT_PASSWORD": "test",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            config = load_config()
+            assert config.reddit_account.username == "test"
+            assert config.anthropic_api_key == ""  # empty, agent provides
+
     def test_custom_limits(self):
         """Should respect custom limits from env vars."""
         env = {
