@@ -337,16 +337,47 @@ async def post_comment(
         log.warning(f"Thread is locked: {thread_url}")
         return {"success": False, "error": "thread_locked"}
 
+    # Dismiss cookie popup if present
+    try:
+        btns = await page.query_selector_all("button")
+        for btn in btns:
+            txt = await btn.inner_text()
+            if "Accept All" in txt:
+                await btn.click()
+                await asyncio.sleep(1)
+                break
+    except Exception:
+        pass
+
     # Find and click the comment box
     try:
-        # Reddit's comment box can be a contenteditable div or textarea
-        comment_box = await page.wait_for_selector(
-            'div[contenteditable="true"][role="textbox"], '
-            'textarea[placeholder*="comment"], '
-            'div[data-testid="comment-submission-form-richtext"] div[contenteditable], '
+        # Modern Reddit: shreddit-composer contains a contenteditable div
+        # Try multiple selectors in order of specificity
+        comment_box = None
+        for selector in [
+            'shreddit-composer div[contenteditable="true"]',
+            'div[contenteditable="true"]',
+            'textarea',
             '[name="body"]',
-            timeout=10000,
-        )
+        ]:
+            comment_box = await page.query_selector(selector)
+            if comment_box:
+                log.info(f"Found comment box via: {selector}")
+                break
+
+        if not comment_box:
+            # Last resort: click "Join the conversation" text to activate the input
+            join_el = await page.query_selector('comment-composer-host')
+            if join_el:
+                await join_el.click()
+                await asyncio.sleep(1)
+                comment_box = await page.query_selector('div[contenteditable="true"]')
+
+        if not comment_box:
+            log.error("Could not find comment box")
+            await _screenshot_error(page, "no_comment_box")
+            return {"success": False, "error": "comment_box_not_found"}
+
     except Exception:
         log.error("Could not find comment box")
         await _screenshot_error(page, "no_comment_box")
@@ -364,17 +395,33 @@ async def post_comment(
 
     # Find and click the submit button
     try:
-        submit_btn = await page.wait_for_selector(
-            'button[type="submit"]:has-text("Comment"), '
-            'button:has-text("Comment"), '
-            'button[data-testid="comment-submission-form-submit"]',
-            timeout=5000,
-        )
-        await submit_btn.click()
-    except Exception:
-        log.error("Could not find submit button")
-        await _screenshot_error(page, "no_submit_button")
-        return {"success": False, "error": "submit_button_not_found"}
+        submit_btn = None
+        # Search all buttons for one that says "Comment"
+        btns = await page.query_selector_all("button")
+        for btn in btns:
+            txt = (await btn.inner_text()).strip()
+            if txt == "Comment" or txt == "Reply":
+                submit_btn = btn
+                log.info(f"Found submit button: '{txt}'")
+                break
+
+        if not submit_btn:
+            # Try within the shreddit-composer
+            submit_btn = await page.query_selector(
+                'shreddit-composer button[type="submit"], '
+                'faceplate-form button[type="submit"]'
+            )
+
+        if submit_btn:
+            await submit_btn.click()
+        else:
+            log.error("Could not find submit button")
+            await _screenshot_error(page, "no_submit_button")
+            return {"success": False, "error": "submit_button_not_found"}
+    except Exception as e:
+        log.error(f"Submit button error: {e}")
+        await _screenshot_error(page, "submit_error")
+        return {"success": False, "error": str(e)}
 
     # Wait for the comment to appear
     await asyncio.sleep(human_delay(3000, 5000))
