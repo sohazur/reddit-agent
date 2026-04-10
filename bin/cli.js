@@ -108,10 +108,61 @@ function askHidden(question) {
   });
 }
 
+function detectEnvironment() {
+  // Detect what environment we're running in
+  const env = {
+    isOpenClaw: false,
+    hasAnthropicKey: false,
+    hasOpenAIKey: false,
+    apiKeySource: null,
+  };
+
+  // Check OpenClaw
+  const openclawDir = path.join(process.env.HOME, ".openclaw");
+  env.isOpenClaw = fs.existsSync(openclawDir);
+
+  // Check API keys in environment
+  if (process.env.ANTHROPIC_API_KEY) {
+    env.hasAnthropicKey = true;
+    env.apiKeySource = "environment";
+  }
+  if (process.env.OPENAI_API_KEY) {
+    env.hasOpenAIKey = true;
+    env.apiKeySource = "environment";
+  }
+
+  // Check shell profiles for API keys
+  if (!env.hasAnthropicKey && !env.hasOpenAIKey) {
+    const shellEnv = loadShellEnv();
+    if (shellEnv.ANTHROPIC_API_KEY) {
+      env.hasAnthropicKey = true;
+      env.apiKeySource = "shell profile";
+    }
+    if (shellEnv.OPENAI_API_KEY) {
+      env.hasOpenAIKey = true;
+      env.apiKeySource = "shell profile";
+    }
+  }
+
+  return env;
+}
+
 async function setup() {
   console.log();
   console.log("Reddit Agent — Setup");
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  console.log();
+
+  // Detect environment
+  const env = detectEnvironment();
+  if (env.isOpenClaw) {
+    console.log("  Detected: OpenClaw environment");
+  }
+  if (env.hasAnthropicKey || env.hasOpenAIKey) {
+    console.log(
+      `  Detected: ${env.hasAnthropicKey ? "Anthropic" : "OpenAI"} API key (from ${env.apiKeySource})`
+    );
+  }
   console.log();
 
   // Bootstrap Python if needed
@@ -124,42 +175,89 @@ async function setup() {
     }
   }
 
-  // Ask for credentials
-  console.log("I just need your Reddit credentials.\n");
-  const username = await ask("Reddit username: ");
+  // ─── Reddit credentials ────────────────────────
+  console.log("Reddit account:\n");
+  const username = await ask("  Username: ");
 
-  // For password, use simple approach
-  const rl2 = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  // Password — write directly via Python to avoid shell escaping
+  console.log("  Password: (typing is hidden)");
   const password = await new Promise((resolve) => {
-    rl2.question("Reddit password: ", (ans) => {
-      rl2.close();
-      resolve(ans.trim());
-    });
+    let pw = "";
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.setEncoding("utf8");
+    const onData = (key) => {
+      if (key === "\r" || key === "\n" || key === "\u0004") {
+        process.stdin.setRawMode(false);
+        process.stdin.pause();
+        process.stdin.removeListener("data", onData);
+        console.log();
+        resolve(pw);
+      } else if (key === "\u007F" || key === "\b") {
+        if (pw.length > 0) {
+          pw = pw.slice(0, -1);
+          process.stdout.write("\b \b");
+        }
+      } else if (key === "\u0003") {
+        process.exit(0);
+      } else {
+        pw += key;
+        process.stdout.write("*");
+      }
+    };
+    process.stdin.on("data", onData);
   });
 
+  // ─── Objective ─────────────────────────────────
   console.log();
-  console.log("What's your goal on Reddit? Examples:");
+  console.log("What's your goal on Reddit?");
+  console.log("  Examples:");
   console.log("  - Promote my SaaS product to developers");
   console.log("  - Build authority in the fitness niche");
-  console.log("  - Drive traffic to my blog");
+  console.log("  - Drive traffic to my blog about AI");
   console.log("  - Just build karma on a new account");
   console.log();
-  const objective = await ask("Your objective: ");
+  const objective = await ask("  Your objective: ");
 
-  const maxDaily = (await ask("Max comments/day [5]: ")) || "5";
+  // ─── API key (only ask if not detected) ────────
+  let apiKey = "";
+  let apiProvider = "";
+  if (!env.hasAnthropicKey && !env.hasOpenAIKey) {
+    console.log();
+    console.log("No AI API key detected in your environment.");
+    if (env.isOpenClaw) {
+      console.log("  OpenClaw will provide LLM access — no key needed.");
+    } else {
+      console.log("  The agent needs an API key to generate comments.");
+      console.log("  Get one from: console.anthropic.com or platform.openai.com");
+      console.log();
+      apiKey = await ask("  API key (or Enter to skip): ");
+      if (apiKey) {
+        if (apiKey.startsWith("sk-ant")) {
+          apiProvider = "ANTHROPIC_API_KEY";
+        } else {
+          apiProvider = "OPENAI_API_KEY";
+        }
+      }
+    }
+  }
 
+  // ─── Settings ──────────────────────────────────
   console.log();
-  console.log("Engagement modes (press Enter for defaults):");
-  const engagePost = (await ask("Create original posts? [n]: ")) || "n";
+  const maxDaily = (await ask("  Max comments/day [5]: ")) || "5";
+  const engagePost =
+    (await ask("  Create original posts? [n]: ")) || "n";
 
-  // Write .env
-  const envContent = [
+  // ─── Write .env via Python (handles special chars) ─────
+  const envLines = [
     `REDDIT_USERNAME=${username}`,
     `REDDIT_PASSWORD=${password}`,
     `REDDIT_AGENT_OBJECTIVE=${objective}`,
+  ];
+  if (apiKey && apiProvider) {
+    envLines.push(`${apiProvider}=${apiKey}`);
+  }
+  envLines.push(
     `MAX_COMMENTS_PER_DAY=${maxDaily}`,
     `MIN_COMMENT_INTERVAL_MINUTES=20`,
     `QUALITY_THRESHOLD=7`,
@@ -169,12 +267,34 @@ async function setup() {
     `ENGAGE_REPLY=true`,
     `ENGAGE_POST=${engagePost.toLowerCase().startsWith("y") ? "true" : "false"}`,
     `ENGAGE_BROWSE=true`,
+    `ENGAGE_DM_REPLY=true`,
+    `ENGAGE_DM_OUTREACH=false`,
     `LOG_LEVEL=INFO`,
-    `SCREENSHOT_ON_ERROR=true`,
-  ].join("\n");
+    `SCREENSHOT_ON_ERROR=true`
+  );
 
-  fs.writeFileSync(ENV_FILE, envContent + "\n", { mode: 0o600 });
-  console.log("\n✓ Credentials saved");
+  // Write via Python to safely handle special characters in password
+  const envContent = envLines.join("\n");
+  const writeScript = `
+import os
+env_path = ${JSON.stringify(ENV_FILE)}
+with open(env_path, 'w') as f:
+    f.write(${JSON.stringify(envContent + "\n")})
+os.chmod(env_path, 0o600)
+print('ok')
+`;
+  const writeResult = spawnSync(
+    isBootstrapped() ? PYTHON : "python3",
+    ["-c", writeScript],
+    { cwd: ROOT, stdio: "pipe" }
+  );
+  if (writeResult.stdout && writeResult.stdout.toString().includes("ok")) {
+    console.log("\n✓ Configuration saved");
+  } else {
+    // Fallback: write directly
+    fs.writeFileSync(ENV_FILE, envContent + "\n", { mode: 0o600 });
+    console.log("\n✓ Configuration saved (direct write)");
+  }
 
   // Init DB
   run(PYTHON, ["-c", "from src.db import init_db; init_db()"]);
