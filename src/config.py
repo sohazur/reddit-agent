@@ -31,6 +31,7 @@ class SubredditConfig:
     max_daily_comments: int
     tone: str
     notes: str = ""
+    min_karma: int = 0
 
 
 @dataclass
@@ -104,6 +105,7 @@ def load_subreddits() -> list[SubredditConfig]:
             max_daily_comments=s.get("max_daily_comments", 2),
             tone=s.get("tone", ""),
             notes=s.get("notes", ""),
+            min_karma=s.get("min_karma", 0),
         )
         for s in raw.get("subreddits", [])
     ]

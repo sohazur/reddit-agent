@@ -14,9 +14,10 @@ class TestLoadSubreddits:
         """Should load subreddits from the YAML config."""
         subs = load_subreddits()
         assert len(subs) >= 1
-        assert subs[0].name == "SEO"
+        assert subs[0].name == "AskReddit"
         assert len(subs[0].keywords) > 0
         assert subs[0].max_daily_comments > 0
+        assert subs[0].min_karma == 0
 
     def test_subreddit_has_tone(self):
         """Each subreddit should have tone guidance."""

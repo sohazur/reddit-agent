@@ -98,6 +98,12 @@ async def run_cycle(config: Config) -> dict:
             results["errors"] += 1
             return results
 
+        # Check account karma to filter subreddits
+        from src.browser.karma import get_account_karma, can_post_to_subreddit as karma_check, reset_karma_cache
+        reset_karma_cache()
+        account_karma = await get_account_karma(session)
+        log.info(f"Account karma: {account_karma}")
+
         for subreddit in config.subreddits:
             if not cadence.can_post_today():
                 log.info("Daily quota reached, stopping")
@@ -105,6 +111,14 @@ async def run_cycle(config: Config) -> dict:
 
             if not cadence.can_post_to_subreddit(subreddit):
                 log.info(f"r/{subreddit.name} quota reached, skipping")
+                continue
+
+            # Skip subreddits that require more karma than we have
+            if subreddit.min_karma > 0 and not karma_check(account_karma, subreddit.min_karma):
+                log.info(
+                    f"r/{subreddit.name} requires {subreddit.min_karma} karma "
+                    f"(we have {account_karma}), skipping"
+                )
                 continue
 
             log.info(f"Processing r/{subreddit.name}")

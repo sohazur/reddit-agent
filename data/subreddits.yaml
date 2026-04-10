@@ -1,14 +1,82 @@
 # Target subreddits for the Reddit agent.
-# The agent will scan these for relevant threads to engage with.
+#
+# KARMA BUILDING PHASE: Start with low-barrier subreddits that don't have
+# minimum karma requirements. Once the account has 50-100+ comment karma,
+# move to the higher-value subreddits.
 #
 # Fields:
 #   name: subreddit name (without r/)
-#   keywords: topics to search for within this subreddit
+#   keywords: topics relevant to our brand (used for LLM evaluation)
 #   max_daily_comments: max comments per day in this subreddit
-#   tone: guidance for comment style (fed into Claude prompt)
-#   notes: any special rules or observations about this community
+#   tone: guidance for comment style
+#   notes: special rules or observations
+#   min_karma: minimum account karma needed (0 = no requirement known)
 
 subreddits:
+  # ── KARMA BUILDING (low/no karma requirements) ──────────────
+
+  - name: AskReddit
+    keywords:
+      - technology
+      - AI
+      - search engines
+      - marketing
+      - business
+    max_daily_comments: 2
+    tone: "Casual, conversational. Short answers. Personal anecdotes work well. This is the most popular subreddit, very easy to get upvotes with relatable answers."
+    notes: "No karma requirement. Great for building karma. Answer popular questions with genuine, relatable responses. Don't mention ReachLLM or anything work-related."
+    min_karma: 0
+
+  - name: NoStupidQuestions
+    keywords:
+      - technology
+      - internet
+      - AI
+      - search
+      - websites
+    max_daily_comments: 2
+    tone: "Helpful, clear, patient. Explain things simply. This subreddit welcomes any question."
+    notes: "No karma requirement. Answer questions you genuinely know about. Be helpful, not promotional."
+    min_karma: 0
+
+  - name: explainlikeimfive
+    keywords:
+      - technology
+      - AI
+      - search engines
+      - algorithms
+      - internet
+    max_daily_comments: 1
+    tone: "Simple explanations. Use analogies. Break complex topics into easy terms."
+    notes: "No karma requirement. Only comment on topics you can genuinely simplify. Great for AI/tech explanations."
+    min_karma: 0
+
+  - name: smallbusiness
+    keywords:
+      - marketing
+      - online presence
+      - SEO
+      - digital marketing
+      - AI tools for business
+    max_daily_comments: 2
+    tone: "Practical, experience-based. Share actionable advice. Small business owners appreciate specific tips over theory."
+    notes: "Low karma requirement. Owners asking real questions. Be genuinely helpful with marketing/SEO advice."
+    min_karma: 10
+
+  - name: Entrepreneur
+    keywords:
+      - marketing strategy
+      - brand visibility
+      - startup marketing
+      - AI tools
+      - growth
+    max_daily_comments: 1
+    tone: "Direct, no-BS. Entrepreneurs respect specific numbers and results over vague advice."
+    notes: "Low karma requirement. Share insights from experience. Don't be preachy."
+    min_karma: 10
+
+  # ── HIGH-VALUE (need karma first) ───────────────────────────
+
   - name: SEO
     keywords:
       - AI search optimization
@@ -19,7 +87,8 @@ subreddits:
       - answer engine optimization
     max_daily_comments: 3
     tone: "Technical, data-driven. This community is skeptical of marketing claims. Cite sources when possible. Short comments (2-3 sentences) do best."
-    notes: "Mods are aggressive on self-promotion. Never link directly to ReachLLM. Share knowledge, not products."
+    notes: "REQUIRES KARMA. Mods are aggressive on self-promotion. Never link directly to ReachLLM. Share knowledge, not products."
+    min_karma: 50
 
   - name: digital_marketing
     keywords:
@@ -30,7 +99,8 @@ subreddits:
       - AI content strategy
     max_daily_comments: 2
     tone: "Practical, experience-based. Share what you've tried and learned. Casual but knowledgeable."
-    notes: "More tolerant of tool mentions if framed as genuine experience."
+    notes: "Moderate karma requirement. More tolerant of tool mentions if framed as genuine experience."
+    min_karma: 25
 
   - name: artificial
     keywords:
@@ -41,3 +111,4 @@ subreddits:
     max_daily_comments: 2
     tone: "Curious, exploratory. This community likes big-picture AI discussion. Ask questions as much as you answer."
     notes: "Technical audience. Don't oversimplify."
+    min_karma: 20
