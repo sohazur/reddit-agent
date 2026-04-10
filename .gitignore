@@ -9,3 +9,4 @@ data/subreddit_reports/
 *.log
 .pytest_cache/
 *.tgz
+.npmrc
