@@ -15,6 +15,59 @@ from src.log import get_logger
 log = get_logger("actions")
 
 
+async def extract_feed_posts(
+    session,  # RedditSession
+    subreddit_name: str,
+    limit: int = 15,
+) -> list[dict]:
+    """Browse a subreddit's hot feed and extract posts.
+
+    Uses the reliable shreddit-post elements with their attributes.
+    Returns list of dicts with: id, title, url, score, comment_count.
+    """
+    page = session.page
+    url = f"https://www.reddit.com/r/{subreddit_name}/hot/"
+    await page.goto(url, wait_until="domcontentloaded")
+    await asyncio.sleep(human_delay(2000, 4000))
+
+    # Scroll to load more posts
+    for _ in range(3):
+        await page.evaluate("window.scrollBy(0, window.innerHeight)")
+        await asyncio.sleep(human_delay(800, 1500))
+
+    results = await page.evaluate(f"""
+        () => {{
+            const posts = [];
+            const els = document.querySelectorAll('shreddit-post');
+            for (const el of els) {{
+                if (posts.length >= {limit}) break;
+                const id = el.getAttribute('id') || el.getAttribute('thingid') || '';
+                const title = el.getAttribute('post-title') || '';
+                const permalink = el.getAttribute('permalink') || '';
+                const score = parseInt(el.getAttribute('score') || '0') || 0;
+                const commentCount = parseInt(el.getAttribute('comment-count') || '0') || 0;
+
+                let url = permalink;
+                if (url && !url.startsWith('http')) url = 'https://www.reddit.com' + url;
+
+                if (title && (id || url)) {{
+                    posts.push({{
+                        id: id.replace('t3_', ''),
+                        title,
+                        url,
+                        score,
+                        comment_count: commentCount
+                    }});
+                }}
+            }}
+            return posts;
+        }}
+    """)
+
+    log.info(f"Extracted {len(results)} posts from r/{subreddit_name} feed")
+    return results
+
+
 async def extract_search_results(
     session,  # RedditSession
     search_url: str,

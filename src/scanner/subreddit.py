@@ -1,6 +1,5 @@
-"""Scan subreddits for relevant threads using browser-use."""
+"""Scan subreddits for relevant threads by browsing the feed."""
 
-import json
 from dataclasses import dataclass
 
 from src.config import SubredditConfig
@@ -27,82 +26,50 @@ async def scan_subreddit(
     subreddit: SubredditConfig,
     limit: int = 15,
 ) -> list[DiscoveredThread]:
-    """Scan a subreddit for relevant threads using the browser.
+    """Scan a subreddit's hot/new feed for threads to engage with.
 
-    Uses Reddit's search within the subreddit for each keyword,
-    then deduplicates and returns fresh threads.
+    Instead of using Reddit's search (which uses different DOM and is unreliable),
+    we browse the subreddit feed directly and let the LLM evaluator filter for relevance.
     """
-    log.info(f"Scanning r/{subreddit.name} for threads")
-    seen_ids: set[str] = set()
+    log.info(f"Scanning r/{subreddit.name} feed for threads")
     threads: list[DiscoveredThread] = []
 
-    for keyword in subreddit.keywords:
-        try:
-            found = await _search_subreddit(
-                browser_session, subreddit.name, keyword, limit=limit
-            )
-            for thread in found:
-                if thread.id in seen_ids:
-                    continue
-                if has_commented_on_thread(thread.id):
-                    log.info(f"Skipping {thread.id} — already commented")
-                    continue
-                seen_ids.add(thread.id)
-                threads.append(thread)
+    try:
+        from src.browser.actions import extract_feed_posts
 
-                record_thread(
-                    thread_id=thread.id,
-                    subreddit=subreddit.name,
-                    title=thread.title,
-                    url=thread.url,
-                    score=thread.score,
-                    comment_count=thread.comment_count,
-                )
-        except Exception as e:
-            log.error(f"Error scanning r/{subreddit.name} for '{keyword}': {e}")
-            continue
+        posts = await extract_feed_posts(browser_session, subreddit.name, limit)
+
+        for post in posts:
+            if has_commented_on_thread(post["id"]):
+                log.info(f"Skipping {post['id']} — already commented")
+                continue
+
+            thread = DiscoveredThread(
+                id=post["id"],
+                subreddit=subreddit.name,
+                title=post["title"],
+                body="",
+                url=post["url"],
+                score=post.get("score", 0),
+                comment_count=post.get("comment_count", 0),
+                top_comments=[],
+            )
+            threads.append(thread)
+
+            record_thread(
+                thread_id=thread.id,
+                subreddit=subreddit.name,
+                title=thread.title,
+                url=thread.url,
+                score=thread.score,
+                comment_count=thread.comment_count,
+            )
+
+    except Exception as e:
+        log.error(f"Error scanning r/{subreddit.name}: {e}")
 
     log.info(f"Found {len(threads)} new threads in r/{subreddit.name}")
     return threads
-
-
-async def _search_subreddit(
-    browser_session,
-    subreddit_name: str,
-    keyword: str,
-    limit: int = 15,
-) -> list[DiscoveredThread]:
-    """Search a subreddit for a keyword using the browser.
-
-    Navigates to Reddit search, extracts thread data from the page.
-    """
-    from src.browser.actions import extract_search_results
-
-    search_url = (
-        f"https://www.reddit.com/r/{subreddit_name}/search/"
-        f"?q={keyword}&restrict_sr=1&sort=new&t=week"
-    )
-
-    log.info(f"Searching r/{subreddit_name} for '{keyword}'")
-
-    try:
-        results = await extract_search_results(browser_session, search_url, limit)
-        return [
-            DiscoveredThread(
-                id=r["id"],
-                subreddit=subreddit_name,
-                title=r["title"],
-                body=r.get("body", ""),
-                url=r["url"],
-                score=r.get("score", 0),
-                comment_count=r.get("comment_count", 0),
-                top_comments=r.get("top_comments", []),
-            )
-            for r in results
-        ]
-    except Exception as e:
-        log.error(f"Search failed for r/{subreddit_name} '{keyword}': {e}")
-        return []
 
 
 async def read_thread_details(
