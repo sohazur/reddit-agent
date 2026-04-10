@@ -140,12 +140,22 @@ async function setup() {
     });
   });
 
+  console.log();
+  console.log("What's your goal on Reddit? Examples:");
+  console.log("  - Promote my SaaS product to developers");
+  console.log("  - Build authority in the fitness niche");
+  console.log("  - Drive traffic to my blog");
+  console.log("  - Just build karma on a new account");
+  console.log();
+  const objective = await ask("Your objective: ");
+
   const maxDaily = (await ask("Max comments/day [5]: ")) || "5";
 
   // Write .env
   const envContent = [
     `REDDIT_USERNAME=${username}`,
     `REDDIT_PASSWORD=${password}`,
+    `REDDIT_AGENT_OBJECTIVE=${objective}`,
     `MAX_COMMENTS_PER_DAY=${maxDaily}`,
     `MIN_COMMENT_INTERVAL_MINUTES=20`,
     `QUALITY_THRESHOLD=7`,

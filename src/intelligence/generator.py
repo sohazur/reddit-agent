@@ -65,6 +65,7 @@ async def generate_comment(
     if intel:
         tone = f"{subreddit.tone}\n\nSubreddit intelligence: {intel}"
 
+    objective = config.objective or "Be helpful and build authority in the community."
     template = "generate_comment_karma" if karma_mode else "generate_comment"
     prompt = load_prompt(
         template,
@@ -75,6 +76,7 @@ async def generate_comment(
         thread_body=thread_body[:2000],
         thread_comments=thread_comments[:3000],
         learnings_context=learnings,
+        objective=objective,
     )
 
     try:

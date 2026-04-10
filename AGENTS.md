@@ -2,6 +2,13 @@
 
 Instructions for AI agents (Claude Code, OpenClaw, or any LLM agent) to install, configure, and operate reddit-agent. Read this file before doing anything with the Reddit agent.
 
+## Quick Setup URL
+
+If you're an AI agent and someone pointed you here, the full step-by-step install guide is at:
+`https://raw.githubusercontent.com/sohazur/reddit-agent/main/INSTALL.md`
+
+Fetch and follow that file. It tells you exactly what to ask the user and how to configure everything.
+
 ## What This Is
 
 An autonomous Reddit engagement agent that posts human-like comments via a stealth headless browser. It builds karma on new accounts, learns from feedback, and improves over time. Runs on any machine including headless VMs.

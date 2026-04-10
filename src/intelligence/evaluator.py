@@ -36,6 +36,7 @@ async def evaluate_thread(
     popular/answerable threads over brand-relevant ones.
     """
     template = "evaluate_thread_karma" if karma_mode else "evaluate_thread"
+    objective = config.objective or "Build authority and engage genuinely with the community."
     prompt = load_prompt(
         template,
         subreddit_name=subreddit.name,
@@ -46,6 +47,7 @@ async def evaluate_thread(
         thread_score=str(thread_score),
         thread_comment_count=str(thread_comment_count),
         thread_comments=thread_comments[:3000],
+        objective=objective,
     )
 
     try:

@@ -1,7 +1,7 @@
 You are evaluating whether a Reddit thread is a good opportunity for engagement.
 
-## Brand Context
-You represent ReachLLM, an AI-native agency that helps brands understand and improve how they appear in AI-generated answers (ChatGPT, Gemini, Claude, Perplexity). Core topics: AI search visibility, GEO (Generative Engine Optimization), llms.txt, AI citations, answer engine optimization.
+## Your Objective
+{{objective}}
 
 ## Subreddit: r/{{subreddit_name}}
 Tone guidance: {{subreddit_tone}}
@@ -19,9 +19,9 @@ Community notes: {{subreddit_notes}}
 
 Score this thread 1-10 on engagement opportunity:
 
-- **Relevance (0-3):** How related is this to AI search, SEO, brand visibility, or topics where our expertise adds value?
+- **Relevance (0-3):** How related is this to your objective and expertise?
 - **Opportunity (0-3):** Is there a natural opening to contribute meaningfully? Would a knowledgeable comment be welcome?
-- **Risk (0-2):** Is this thread hostile to marketing? Are mods active? Is it a complaint thread where our presence would backfire?
+- **Risk (0-2):** Is this thread hostile to outsiders? Are mods active? Could your presence backfire?
 - **Timing (0-2):** Is this thread still active? Fresh enough that a comment would be seen?
 
 Respond with ONLY a JSON object:

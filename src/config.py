@@ -51,6 +51,9 @@ class Config:
     quality_threshold: int
     cycle_interval_hours: int
 
+    # Objective — the user's goal for Reddit engagement
+    objective: str = ""
+
     # Subreddits
     subreddits: list[SubredditConfig] = field(default_factory=list)
 
@@ -128,6 +131,7 @@ def load_config() -> Config:
         ),
         quality_threshold=int(os.environ.get("QUALITY_THRESHOLD", "7")),
         cycle_interval_hours=int(os.environ.get("CYCLE_INTERVAL_HOURS", "2")),
+        objective=os.environ.get("REDDIT_AGENT_OBJECTIVE", ""),
         subreddits=load_subreddits(),
         ai_marketing_tracker_path=Path(tracker_path) if tracker_path else None,
         log_level=os.environ.get("LOG_LEVEL", "INFO"),

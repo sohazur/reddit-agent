@@ -39,7 +39,11 @@ npm i -g reddit-agent
 reddit-agent setup
 ```
 
-Setup asks for your Reddit username and password. That's it.
+Setup asks for:
+- Reddit username and password
+- Your objective (e.g., "promote my AI SaaS to developers" or "build authority in the fitness niche")
+
+The objective shapes which subreddits the agent targets and how it writes comments.
 
 ### From GitHub
 
@@ -52,9 +56,11 @@ reddit-agent setup
 
 Tell your agent:
 
-> "Install reddit-agent: `npm i -g reddit-agent && reddit-agent setup`"
+> "Set up Reddit automation for me. Follow the instructions at https://raw.githubusercontent.com/sohazur/reddit-agent/main/INSTALL.md"
 
-The agent reads `AGENTS.md` in the package for full instructions on how to configure and operate it. See [AGENTS.md](AGENTS.md) for the complete agent playbook.
+That's it. One URL. The agent reads the instructions, installs the package, asks you a few questions (Reddit credentials + your objective), configures everything, and starts posting.
+
+See [AGENTS.md](AGENTS.md) for the complete agent playbook and [INSTALL.md](INSTALL.md) for the step-by-step guide agents follow.
 
 ### Non-Interactive (scripts, CI, agents)
 

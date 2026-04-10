@@ -1,6 +1,6 @@
 {
   "name": "reddit-agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Autonomous Reddit engagement agent. Stealth browser posting, karma building, shadowban detection, learning loop. Works with OpenClaw, Claude Code, or standalone.",
   "bin": {
     "reddit-agent": "bin/cli.js"
@@ -15,6 +15,7 @@
     "pyproject.toml",
     "install.sh",
     "AGENTS.md",
+    "INSTALL.md",
     "README.md",
     "LICENSE"
   ],
