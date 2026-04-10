@@ -52,8 +52,12 @@ async def generate_comment(
     thread_title: str,
     thread_body: str,
     thread_comments: str,
+    karma_mode: bool = False,
 ) -> str:
-    """Generate a human-like comment for a Reddit thread."""
+    """Generate a human-like comment for a Reddit thread.
+
+    If karma_mode=True, generates a purely genuine comment with no brand agenda.
+    """
     learnings = _load_learnings(subreddit.name)
     intel = _load_subreddit_intel(subreddit.name)
 
@@ -61,8 +65,9 @@ async def generate_comment(
     if intel:
         tone = f"{subreddit.tone}\n\nSubreddit intelligence: {intel}"
 
+    template = "generate_comment_karma" if karma_mode else "generate_comment"
     prompt = load_prompt(
-        "generate_comment",
+        template,
         subreddit_name=subreddit.name,
         subreddit_tone=tone,
         subreddit_notes=subreddit.notes,

@@ -28,10 +28,16 @@ async def evaluate_thread(
     thread_score: int,
     thread_comment_count: int,
     thread_comments: str,
+    karma_mode: bool = False,
 ) -> ThreadScore:
-    """Score a thread's relevance and engagement opportunity."""
+    """Score a thread's relevance and engagement opportunity.
+
+    If karma_mode=True, uses karma-building prompts that prioritize
+    popular/answerable threads over brand-relevant ones.
+    """
+    template = "evaluate_thread_karma" if karma_mode else "evaluate_thread"
     prompt = load_prompt(
-        "evaluate_thread",
+        template,
         subreddit_name=subreddit.name,
         subreddit_tone=subreddit.tone,
         subreddit_notes=subreddit.notes,

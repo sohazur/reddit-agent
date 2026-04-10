@@ -140,9 +140,13 @@ async def run_cycle(config: Config) -> dict:
                     log.info(f"Waiting {wait_time:.0f}s for cooldown")
                     await asyncio.sleep(wait_time)
 
+                # Use karma mode for subreddits with no min_karma requirement
+                karma_mode = subreddit.min_karma == 0
+
                 try:
                     await _process_thread(
-                        config, session, subreddit, thread, cadence, results
+                        config, session, subreddit, thread, cadence, results,
+                        karma_mode=karma_mode,
                     )
                 except Exception as e:
                     log.error(f"Error processing thread {thread.id}: {e}")
@@ -193,6 +197,7 @@ async def _process_thread(
     thread,
     cadence: CadenceManager,
     results: dict,
+    karma_mode: bool = False,
 ) -> None:
     """Evaluate, generate, quality-check, and post a comment for one thread."""
     from src.browser.actions import post_comment as browser_post
@@ -204,7 +209,7 @@ async def _process_thread(
         for c in thread_content.get("comments", [])[:10]
     )
 
-    # Evaluate thread
+    # Evaluate thread (use karma-mode prompts for karma-building subs)
     score = await evaluate_thread(
         config=config,
         subreddit=subreddit,
@@ -213,22 +218,26 @@ async def _process_thread(
         thread_score=thread.score,
         thread_comment_count=thread.comment_count,
         thread_comments=comments_text,
+        karma_mode=karma_mode,
     )
     results["threads_evaluated"] += 1
     update_thread_evaluation(thread.id, score.total, "evaluated")
 
-    if score.total < config.quality_threshold:
-        log.info(f"Thread {thread.id} scored {score.total}/10, skipping")
+    # Lower threshold for karma-building (5 instead of 7)
+    threshold = 5 if karma_mode else config.quality_threshold
+    if score.total < threshold:
+        log.info(f"Thread {thread.id} scored {score.total}/10, skipping (threshold={threshold})")
         update_thread_evaluation(thread.id, score.total, "skipped")
         return
 
-    # Generate comment
+    # Generate comment (karma-mode = genuine, no brand agenda)
     comment_text = await generate_comment(
         config=config,
         subreddit=subreddit,
         thread_title=thread.title,
         thread_body=thread_content.get("body", thread.body),
         thread_comments=comments_text,
+        karma_mode=karma_mode,
     )
 
     if not comment_text:
@@ -256,6 +265,7 @@ async def _process_thread(
             thread_title=thread.title,
             thread_body=thread_content.get("body", thread.body),
             thread_comments=comments_text,
+            karma_mode=karma_mode,
         )
 
         if not comment_text:
