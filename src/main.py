@@ -193,6 +193,40 @@ async def run_cycle(config: Config) -> dict:
                 except Exception as e:
                     log.warning(f"Browse failed: {e}")
 
+        # DMs: reply to incoming + proactive outreach
+        if config.engage_dm_reply or config.engage_dm_outreach:
+            from src.browser.dms import (
+                check_and_reply_dms,
+                find_outreach_opportunities,
+                generate_outreach_dm,
+                send_dm,
+            )
+
+            if config.engage_dm_reply:
+                log.info("Checking and replying to DMs")
+                try:
+                    dm_results = await check_and_reply_dms(session, config)
+                    if dm_results.get("new_leads", 0) > 0:
+                        log.info(f"New leads from DMs: {dm_results['new_leads']}")
+                except Exception as e:
+                    log.warning(f"DM check failed: {e}")
+
+            if config.engage_dm_outreach:
+                log.info("Scanning for outreach opportunities")
+                for sub in config.subreddits[:3]:
+                    if sub.min_karma <= account_karma:
+                        try:
+                            opps = await find_outreach_opportunities(
+                                session, config, sub.name
+                            )
+                            for opp in opps[:2]:  # Max 2 outreach DMs per sub
+                                subject, message = await generate_outreach_dm(config, opp)
+                                if subject and message:
+                                    await send_dm(session, config, opp["author"], subject, message)
+                                    await asyncio.sleep(human_delay(5000, 15000))
+                        except Exception as e:
+                            log.warning(f"Outreach failed in r/{sub.name}: {e}")
+
         # Run feedback loop
         log.info("Running feedback loop")
         feedback = await run_feedback_loop(config, session)

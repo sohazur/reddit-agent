@@ -60,6 +60,8 @@ class Config:
     engage_reply: bool = True
     engage_post: bool = False
     engage_browse: bool = True
+    engage_dm_reply: bool = True
+    engage_dm_outreach: bool = False
 
     # Subreddits
     subreddits: list[SubredditConfig] = field(default_factory=list)
@@ -144,6 +146,8 @@ def load_config() -> Config:
         engage_reply=os.environ.get("ENGAGE_REPLY", "true").lower() == "true",
         engage_post=os.environ.get("ENGAGE_POST", "false").lower() == "true",
         engage_browse=os.environ.get("ENGAGE_BROWSE", "true").lower() == "true",
+        engage_dm_reply=os.environ.get("ENGAGE_DM_REPLY", "true").lower() == "true",
+        engage_dm_outreach=os.environ.get("ENGAGE_DM_OUTREACH", "false").lower() == "true",
         subreddits=load_subreddits(),
         ai_marketing_tracker_path=Path(tracker_path) if tracker_path else None,
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
