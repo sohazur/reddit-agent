@@ -111,6 +111,32 @@ def call_llm(
         raise RuntimeError(f"Unknown provider: {provider}")
 
 
+def _resolve_anthropic_model() -> str:
+    """Discover the best available Anthropic model."""
+    # Check if user/environment specifies a model
+    model = os.environ.get("REDDIT_AGENT_MODEL", "")
+    if model:
+        return model
+
+    # Try to list models and pick the best, fall back to a safe default
+    try:
+        import anthropic
+        client = anthropic.Anthropic()
+        models = client.models.list()
+        # Prefer sonnet (best cost/quality for this use case)
+        for m in models.data:
+            if "sonnet" in m.id and "4" in m.id:
+                return m.id
+        # Any available model
+        if models.data:
+            return models.data[0].id
+    except Exception:
+        pass
+
+    # Safe fallback — Anthropic's latest sonnet
+    return "claude-sonnet-4-20250514"
+
+
 def _call_anthropic(
     prompt: str, api_key: str, max_tokens: int, model: str | None, images: list | None
 ) -> str:
@@ -118,7 +144,7 @@ def _call_anthropic(
     import anthropic
 
     client = anthropic.Anthropic(api_key=api_key)
-    model = model or "claude-sonnet-4-20250514"
+    model = model or _resolve_anthropic_model()
 
     messages_content = []
     if images:
@@ -134,6 +160,41 @@ def _call_anthropic(
     return response.content[0].text.strip()
 
 
+def _resolve_openai_model(client=None) -> str:
+    """Discover the best available OpenAI model."""
+    # Check if user/environment specifies a model
+    model = os.environ.get("REDDIT_AGENT_MODEL", "")
+    if model:
+        return model
+
+    # Try to find the best available model from the API
+    if client:
+        try:
+            models = client.models.list()
+            model_ids = [m.id for m in models.data]
+
+            # Prefer the latest GPT models (higher version = newer)
+            # Look for gpt-4.1, gpt-4o, gpt-4-turbo in that order
+            for preferred in ["gpt-4.1", "gpt-4o", "gpt-4-turbo", "gpt-4"]:
+                if preferred in model_ids:
+                    return preferred
+
+            # Any GPT-4 variant
+            gpt4 = [m for m in model_ids if m.startswith("gpt-4")]
+            if gpt4:
+                return sorted(gpt4, reverse=True)[0]
+
+            # Any GPT model
+            gpt = [m for m in model_ids if m.startswith("gpt-")]
+            if gpt:
+                return sorted(gpt, reverse=True)[0]
+        except Exception:
+            pass
+
+    # Safe fallback
+    return "gpt-4o"
+
+
 def _call_openai(
     prompt: str, api_key: str, max_tokens: int, model: str | None, images: list | None
 ) -> str:
@@ -141,8 +202,7 @@ def _call_openai(
     from openai import OpenAI
 
     client = OpenAI(api_key=api_key)
-    # Use the latest available model for up-to-date knowledge
-    model = model or "gpt-4.1"
+    model = model or _resolve_openai_model(client)
 
     messages_content = []
     if images:
