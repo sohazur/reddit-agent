@@ -1,0 +1,43 @@
+# Target subreddits for the Reddit agent.
+# The agent will scan these for relevant threads to engage with.
+#
+# Fields:
+#   name: subreddit name (without r/)
+#   keywords: topics to search for within this subreddit
+#   max_daily_comments: max comments per day in this subreddit
+#   tone: guidance for comment style (fed into Claude prompt)
+#   notes: any special rules or observations about this community
+
+subreddits:
+  - name: SEO
+    keywords:
+      - AI search optimization
+      - AI overviews
+      - GEO optimization
+      - llms.txt
+      - AI visibility
+      - answer engine optimization
+    max_daily_comments: 3
+    tone: "Technical, data-driven. This community is skeptical of marketing claims. Cite sources when possible. Short comments (2-3 sentences) do best."
+    notes: "Mods are aggressive on self-promotion. Never link directly to ReachLLM. Share knowledge, not products."
+
+  - name: digital_marketing
+    keywords:
+      - AI in marketing
+      - AI search
+      - brand visibility AI
+      - ChatGPT marketing
+      - AI content strategy
+    max_daily_comments: 2
+    tone: "Practical, experience-based. Share what you've tried and learned. Casual but knowledgeable."
+    notes: "More tolerant of tool mentions if framed as genuine experience."
+
+  - name: artificial
+    keywords:
+      - AI search engines
+      - LLM citations
+      - AI recommendations
+      - brand mentions in AI
+    max_daily_comments: 2
+    tone: "Curious, exploratory. This community likes big-picture AI discussion. Ask questions as much as you answer."
+    notes: "Technical audience. Don't oversimplify."

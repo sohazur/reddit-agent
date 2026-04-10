@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+data/reddit.db
+data/screenshots/
+data/learnings.md
+data/subreddit_reports/
+*.log
+.pytest_cache/
