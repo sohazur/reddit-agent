@@ -1,11 +1,14 @@
+.venv/
+.git/
 .env
 __pycache__/
 *.pyc
-.venv/
 data/reddit.db
 data/screenshots/
 data/learnings.md
 data/subreddit_reports/
-*.log
+data/cookies.json
 .pytest_cache/
-*.tgz
+tests/
+.DS_Store
+tasks/

@@ -1,0 +1,47 @@
+{
+  "name": "reddit-agent",
+  "version": "0.1.0",
+  "description": "Autonomous Reddit engagement agent. Stealth browser posting, karma building, shadowban detection, learning loop. Works with OpenClaw, Claude Code, or standalone.",
+  "bin": {
+    "reddit-agent": "bin/cli.js"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "src/",
+    "prompts/",
+    "data/subreddits.yaml",
+    "openclaw/",
+    "pyproject.toml",
+    "install.sh",
+    "AGENTS.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "postinstall": "node lib/bootstrap.js --postinstall"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "reddit",
+    "automation",
+    "ai-agent",
+    "browser-automation",
+    "openclaw",
+    "claude-code",
+    "karma",
+    "engagement"
+  ],
+  "author": "Sohazur <mdsohazurislam@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sohazur/reddit-agent.git"
+  },
+  "homepage": "https://github.com/sohazur/reddit-agent#readme",
+  "bugs": {
+    "url": "https://github.com/sohazur/reddit-agent/issues"
+  }
+}
