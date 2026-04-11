@@ -10,3 +10,5 @@ data/subreddit_reports/
 .pytest_cache/
 *.tgz
 .npmrc
+data/cookies.json
+data/agent.lock
