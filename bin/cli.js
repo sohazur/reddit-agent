@@ -307,6 +307,36 @@ print('ok')
   console.log();
   run(PYTHON, ["-m", "src.health"]);
 
+  // Check if cookies exist
+  const cookiesPath = path.join(ROOT, "data", "cookies.json");
+  if (!fs.existsSync(cookiesPath)) {
+    console.log();
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    console.log("  Cookie Setup (important!)");
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    console.log();
+    console.log("  Reddit blocks headless browsers. You need to export cookies");
+    console.log("  from your real browser to authenticate.");
+    console.log();
+    console.log("  Steps:");
+    console.log("  1. Log in to Reddit as " + username + " in Chrome/Firefox");
+    console.log("  2. Install the Cookie-Editor extension:");
+    console.log("     https://cookie-editor.com");
+    console.log("  3. Go to reddit.com, click the extension, Export as JSON");
+    console.log("  4. Save the JSON to:");
+    console.log(`     ${cookiesPath}`);
+    console.log();
+    console.log("  Or if you have Python browser-cookie3 installed:");
+    console.log("  pip install browser-cookie3 && python -c \"");
+    console.log("  import browser_cookie3, json");
+    console.log("  cj = browser_cookie3.chrome(domain_name='.reddit.com')");
+    console.log("  cookies = [{'name':c.name,'value':c.value,'domain':c.domain,");
+    console.log("    'path':c.path,'secure':bool(c.secure),'httpOnly':False,");
+    console.log("    'sameSite':'Lax'} for c in cj]");
+    console.log(`  json.dump(cookies, open('${cookiesPath}','w'), indent=2)"`);
+    console.log();
+  }
+
   console.log();
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   console.log("✓ Reddit Agent is ready!");
