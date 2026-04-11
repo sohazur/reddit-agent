@@ -1,179 +1,167 @@
 # AGENTS.md — reddit-agent
 
-Instructions for AI agents (Claude Code, OpenClaw, or any LLM agent) to install, configure, and operate reddit-agent. Read this file before doing anything with the Reddit agent.
+Instructions for AI agents (Claude Code, OpenClaw, or any LLM agent) to install, configure, and operate reddit-agent.
 
 ## Quick Setup URL
 
-If you're an AI agent and someone pointed you here, the full step-by-step install guide is at:
+If someone pointed you here, fetch and follow:
 `https://raw.githubusercontent.com/sohazur/reddit-agent/main/INSTALL.md`
 
-Fetch and follow that file. It tells you exactly what to ask the user and how to configure everything.
+That file has the complete step-by-step setup flow.
 
 ## What This Is
 
-An autonomous Reddit engagement agent that posts human-like comments via a stealth headless browser. It builds karma on new accounts, learns from feedback, and improves over time. Runs on any machine including headless VMs.
+An autonomous Reddit engagement agent that behaves like a real user — comments, upvotes, replies to DMs, browses, and learns from feedback. Designed to avoid AI detection by writing in casual internet style.
+
+Key capabilities:
+- Comments on relevant threads (casual style, not AI-sounding)
+- Upvotes, browses, replies — full user behavior
+- Reads and replies to DMs, finds outreach leads
+- Builds karma on new accounts automatically
+- Detects bans and shadowbans, stops posting when caught
+- Learns from feedback and improves over time
+- Objective-driven: user sets their goal, agent adapts
 
 ## Installation
 
-Install globally with npm:
-
 ```bash
 npm i -g reddit-agent
+reddit-agent setup
 ```
 
-Then set up credentials:
+Setup asks for:
+1. **Reddit username** (safe to share in chat)
+2. **Reddit password** (masked input — never shown in chat)
+3. **Objective** ("promote my SaaS to developers", "build authority in fitness", etc.)
+4. **API key** (Anthropic or OpenAI — asked only if none detected in env)
+5. **Max comments/day** (default 5)
+6. **Create original posts?** (y/n, default n)
+7. **DM outreach?** (y/n, default n)
+
+### Handling Passwords Securely
+
+**DO NOT ask for passwords in chat.** The setup command handles credentials locally:
 
 ```bash
 reddit-agent setup
 ```
 
-This will ask for:
-- **Reddit username** (required)
-- **Reddit password** (required)
-- **Max comments per day** (default: 5)
-
-Nothing else is needed. The agent auto-detects LLM API keys from the environment.
-
-### Non-Interactive Install (for agents)
-
+If the user is remote (WhatsApp/Telegram), have them SSH in or use:
 ```bash
-npm i -g reddit-agent
-REDDIT_USERNAME="<user>" REDDIT_PASSWORD="<pass>" reddit-agent setup --non-interactive
+reddit-agent setup-password
 ```
 
-Or write the `.env` file directly:
+### Non-Interactive (for scripts)
 
 ```bash
-# Find the install directory
 INSTALL_DIR=$(npm root -g)/reddit-agent
-
 cat > "$INSTALL_DIR/.env" << EOF
 REDDIT_USERNAME=<username>
 REDDIT_PASSWORD=<password>
+REDDIT_AGENT_OBJECTIVE=<their goal>
+OPENAI_API_KEY=<key if needed>
 MAX_COMMENTS_PER_DAY=5
 MIN_COMMENT_INTERVAL_MINUTES=20
 QUALITY_THRESHOLD=7
+ENGAGE_COMMENT=true
+ENGAGE_UPVOTE=true
+ENGAGE_REPLY=true
+ENGAGE_POST=false
+ENGAGE_BROWSE=true
+ENGAGE_DM_REPLY=true
+ENGAGE_DM_OUTREACH=false
 EOF
+chmod 600 "$INSTALL_DIR/.env"
 ```
 
-### Cookie Setup (Required for VMs/Cloud Servers)
+### Cookie Setup
 
-Reddit blocks datacenter IPs. If running on a VM, you need browser cookies from a real login.
+After install, if on a VM or cloud server, cookies are needed:
 
-**Ask the user:**
-> "Reddit blocks cloud server IPs. I need your browser cookies to log in.
-> Please log in to Reddit on your phone/laptop, install the Cookie-Editor
-> browser extension, export cookies for reddit.com as JSON, and send them to me."
-
-Save the cookies:
 ```bash
-INSTALL_DIR=$(npm root -g)/reddit-agent
-cat > "$INSTALL_DIR/data/cookies.json" << 'EOF'
-<paste the JSON here>
-EOF
+# Check if cookies exist
+ls $(npm root -g)/reddit-agent/data/cookies.json
 ```
+
+If missing, ask the user to export from their browser. See INSTALL.md for details.
 
 ## Commands
 
-| Command | What it does |
+| Command | What |
 |---|---|
-| `reddit-agent run` | Run one full engagement cycle |
-| `reddit-agent feedback` | Check karma and removals on past comments |
-| `reddit-agent digest` | Print daily performance summary |
-| `reddit-agent setup` | Interactive setup (credentials + environment) |
-| `reddit-agent update` | Pull latest version |
-| `reddit-agent status` | Show config and health check |
-| `reddit-agent help` | Show all commands |
+| `reddit-agent run` | Run one full cycle |
+| `reddit-agent feedback` | Check past comments |
+| `reddit-agent digest` | Performance summary |
+| `reddit-agent objective "new goal"` | Change objective |
+| `reddit-agent status` | Config and health |
+| `reddit-agent update` | Get latest version |
+| `reddit-agent setup` | Full interactive setup |
+| `reddit-agent setup-password` | Update password only |
 
-## Configuration
+## User Request Mapping
 
-### Target Subreddits
+| User says | Action |
+|---|---|
+| "Install the Reddit agent" | `npm i -g reddit-agent && reddit-agent setup` |
+| "Run the Reddit bot" | `reddit-agent run` → report results |
+| "How's Reddit going?" | `reddit-agent digest` → summarize |
+| "Add r/marketing" | Edit `$(npm root -g)/reddit-agent/data/subreddits.yaml` |
+| "Change my objective" | `reddit-agent objective "new goal"` |
+| "Post more/less" | Edit `MAX_COMMENTS_PER_DAY` in `.env` |
+| "Stop posting" | Set `MAX_COMMENTS_PER_DAY=0` |
+| "Enable DM outreach" | Set `ENGAGE_DM_OUTREACH=true` in `.env` |
+| "Enable original posts" | Set `ENGAGE_POST=true` in `.env` |
+| "Check for problems" | `reddit-agent feedback` → report |
+| "What did it learn?" | `cat $(npm root -g)/reddit-agent/data/learnings.md` |
+| "Show me leads" | `cat $(npm root -g)/reddit-agent/data/leads.json` |
+| "Update the agent" | `reddit-agent update` |
+
+## Subreddit Configuration
 
 Edit `$(npm root -g)/reddit-agent/data/subreddits.yaml`:
 
 ```yaml
 subreddits:
-  - name: AskReddit         # For karma building
+  - name: SubredditName
+    keywords: [topic1, topic2]
     max_daily_comments: 2
-    min_karma: 0             # No requirement
-    tone: "Casual, conversational."
-
-  - name: SEO               # High-value target
-    keywords: [AI search, GEO, llms.txt]
-    max_daily_comments: 3
-    min_karma: 50            # Needs karma first
-    tone: "Technical, data-driven."
+    min_karma: 0           # 0 = karma building, 20-50 = needs karma
+    tone: "casual, match the community"
+    notes: "any rules to follow"
 ```
 
-The agent **automatically skips** subreddits the account doesn't have enough karma for.
-
-### Posting Settings
-
-Edit `$(npm root -g)/reddit-agent/.env`:
-
-| Setting | Default | Description |
-|---|---|---|
-| `MAX_COMMENTS_PER_DAY` | 5 | Daily limit |
-| `MIN_COMMENT_INTERVAL_MINUTES` | 20 | Gap between posts |
-| `QUALITY_THRESHOLD` | 7 | Minimum AI quality score |
-
-## User Request Mapping
-
-When the user asks for something, here's what to do:
-
-| User says | Action |
-|---|---|
-| "Install the Reddit agent" | `npm i -g reddit-agent && reddit-agent setup` |
-| "Run the Reddit bot" | `reddit-agent run` — report results |
-| "How's Reddit doing?" | `reddit-agent digest` — summarize output |
-| "Add r/marketing" | Edit `data/subreddits.yaml`, add the subreddit |
-| "Post about AI tools" | Add keywords to relevant subreddit in yaml |
-| "Post more often" | Increase `MAX_COMMENTS_PER_DAY` in `.env` |
-| "Stop posting" | Set `MAX_COMMENTS_PER_DAY=0` |
-| "Check for problems" | `reddit-agent feedback` — report issues |
-| "What did it learn?" | `cat $(npm root -g)/reddit-agent/data/learnings.md` |
-| "Update the agent" | `reddit-agent update` |
-| "Use a different account" | Edit `REDDIT_USERNAME`/`REDDIT_PASSWORD` in `.env` |
-| "Show me the config" | `reddit-agent status` |
-
-## How It Works
-
-1. **Karma check** — reads the account's karma from Reddit profile
-2. **Subreddit filtering** — skips subs needing more karma than account has
-3. **Karma building** — on low-karma accounts, posts genuine helpful comments on r/AskReddit etc.
-4. **Brand mode** — once karma is high enough, targets brand-relevant subs with smart comments
-5. **Quality gate** — every comment scored 1-10 for naturalness, relevance, safety, subtlety
-6. **Stealth posting** — headless browser with fingerprint rotation, human typing delays
-7. **Verification** — checks if comment is visible (shadowban detection)
-8. **Learning** — tracks karma, removals, writes learnings for next cycle
+When the user gives an objective, create subreddits that match:
+- 2-3 karma-building subs (min_karma: 0)
+- 2-4 target subs relevant to their goal (min_karma: 20-50)
 
 ## Monitoring
 
 | What | How |
 |---|---|
+| Performance | `reddit-agent digest` |
 | Learnings | `cat $(npm root -g)/reddit-agent/data/learnings.md` |
 | Subreddit intel | `cat $(npm root -g)/reddit-agent/data/subreddit_reports/*.md` |
-| Error screenshots | `ls $(npm root -g)/reddit-agent/data/screenshots/` |
-| Database | `$(npm root -g)/reddit-agent/.venv/bin/python -c "from src.db import get_daily_summary; import json; print(json.dumps(get_daily_summary(), indent=2))"` |
+| Leads | `cat $(npm root -g)/reddit-agent/data/leads.json` |
+| Errors | `ls $(npm root -g)/reddit-agent/data/screenshots/` |
+
+## How It Works
+
+Each cycle:
+1. Inbox check → detect bans, auto-disable banned subs
+2. Karma check → skip subs needing more karma
+3. Browse subs → scroll naturally
+4. Comment → evaluate thread → generate casual comment → quality-check for AI tells → post
+5. Upvote → a few posts per sub
+6. Reply → respond to people who replied to us
+7. DM → reply to incoming, optionally DM outreach
+8. Feedback → check past comment karma, detect removals
+9. Learn → write learnings for next cycle
 
 ## OpenClaw Integration
 
-When installed on an OpenClaw machine, the installer automatically:
-- Registers as an OpenClaw skill
-- Sets up a cron job (every 2 hours)
-- Adds tasks to HEARTBEAT.md
+On OpenClaw machines, the installer automatically registers:
+- A skill at `~/.openclaw/agents/skills/reddit-agent/`
+- A cron job (every 2 hours)
+- HEARTBEAT.md tasks
 
-The agent reports results through your OpenClaw chat channel.
-
-## Updating
-
-```bash
-reddit-agent update
-```
-
-Or reinstall from npm:
-```bash
-npm i -g reddit-agent@latest
-```
-
-Updates include new features, bug fixes, and improved prompts. Config and data are preserved.
+The agent reports results through your chat channel.

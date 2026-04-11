@@ -1,6 +1,6 @@
 # reddit-agent
 
-Autonomous Reddit engagement agent. One command to install, works with any AI agent or standalone.
+Autonomous Reddit engagement agent. One command to install. Works standalone, with [OpenClaw](https://openclaw.ai), or [Claude Code](https://claude.ai/code).
 
 ```bash
 npm i -g reddit-agent
@@ -9,26 +9,34 @@ reddit-agent setup
 
 ## What It Does
 
-Runs every 2 hours (or on demand) and:
+Runs on autopilot and engages on Reddit like a real user:
 
-1. **Browses** target subreddits via a stealth headless browser
-2. **Evaluates** threads for engagement opportunity using AI
-3. **Generates** human-like comments (not AI-sounding corporate speak)
-4. **Quality-checks** every comment before posting (naturalness, safety, subtlety)
-5. **Posts** via browser with human-like typing delays
-6. **Learns** from karma, removals, and shadowbans to improve over time
+- **Comments** on relevant threads with human-like responses
+- **Upvotes** posts for natural account activity
+- **Replies** to people who respond to your comments
+- **Reads DMs** and replies intelligently
+- **Finds leads** by spotting people asking for help and optionally DMs them
+- **Creates posts** in subreddits (optional, off by default)
+- **Browses** subreddits naturally (scrolls, reads, clicks)
+- **Builds karma** automatically on new accounts
+- **Learns** from what gets upvoted/removed and improves over time
+- **Detects bans** by checking inbox before every cycle and auto-disabling banned subs
+- **Detects shadowbans** by checking comment visibility in incognito
 
-### Handles the Hard Parts
+### Anti-Detection
 
-| Problem | How reddit-agent solves it |
-|---|---|
-| Reddit API restrictions | No API used — pure browser interaction |
-| Datacenter IPs blocked | Cookie-based auth from your real browser |
-| New accounts get auto-removed | Auto-builds karma on easy subreddits first |
-| AI comments sound robotic | Quality gate scores naturalness before posting |
-| Manual posting doesn't scale | Runs autonomously every 2 hours |
-| No memory between sessions | SQLite DB + learnings file persist across runs |
-| Shadowbans go undetected | Incognito re-check after every post |
+Reddit actively bans AI-generated content. This agent is designed to avoid detection:
+
+- Comments are written in casual internet style (lowercase, slang, short)
+- Quality gate checks every comment against 10 known AI-detection patterns
+- Human-like typing delays (30-120ms per keystroke, variable)
+- Randomized browser fingerprints (user agent, viewport, timezone)
+- Randomized posting intervals (15-30 min gaps)
+- No Reddit API used — pure browser interaction
+
+### Objective-Driven
+
+During setup you define your goal (e.g., "promote my SaaS to developers" or "build authority in SEO"). The agent uses this objective to decide which threads are relevant and what angle to take in comments — without ever being explicitly promotional.
 
 ## Install
 
@@ -40,10 +48,19 @@ reddit-agent setup
 ```
 
 Setup asks for:
-- Reddit username and password
-- Your objective (e.g., "promote my AI SaaS to developers" or "build authority in the fitness niche")
+1. Reddit username and password (password is masked)
+2. Your objective/goal
+3. API key (Anthropic or OpenAI — auto-detected if already in your environment)
+4. Posting limits
+5. Whether to enable original posts and DM outreach
 
-The objective shapes which subreddits the agent targets and how it writes comments.
+### For AI Agents
+
+Tell your OpenClaw, Claude Code, or any AI agent:
+
+> "Set up Reddit automation for me. Follow the instructions at https://raw.githubusercontent.com/sohazur/reddit-agent/main/INSTALL.md"
+
+The agent reads `INSTALL.md`, installs the package, asks you a few questions, and configures everything. See [AGENTS.md](AGENTS.md) for the full agent playbook.
 
 ### From GitHub
 
@@ -52,179 +69,133 @@ npm i -g github:sohazur/reddit-agent
 reddit-agent setup
 ```
 
-### For AI Agents (OpenClaw, Claude Code, etc.)
+## Cookie Setup
 
-Tell your agent:
+Reddit blocks headless browsers. After running `reddit-agent setup`, you need to export cookies from your real browser:
 
-> "Set up Reddit automation for me. Follow the instructions at https://raw.githubusercontent.com/sohazur/reddit-agent/main/INSTALL.md"
+1. Log in to Reddit in Chrome/Firefox as your bot account
+2. Install [Cookie-Editor](https://cookie-editor.com) extension
+3. Go to reddit.com, click the extension, **Export as JSON**
+4. Save to: `$(npm root -g)/reddit-agent/data/cookies.json`
 
-That's it. One URL. The agent reads the instructions, installs the package, asks you a few questions (Reddit credentials + your objective), configures everything, and starts posting.
-
-See [AGENTS.md](AGENTS.md) for the complete agent playbook and [INSTALL.md](INSTALL.md) for the step-by-step guide agents follow.
-
-### Non-Interactive (scripts, CI, agents)
-
-```bash
-npm i -g reddit-agent
-# Write config directly
-INSTALL_DIR=$(npm root -g)/reddit-agent
-cat > "$INSTALL_DIR/.env" << EOF
-REDDIT_USERNAME=your_username
-REDDIT_PASSWORD=your_password
-MAX_COMMENTS_PER_DAY=5
-EOF
-```
-
-## First Run
-
-On first `reddit-agent run`, the agent automatically:
-1. Sets up a Python virtual environment
-2. Installs dependencies (Playwright, AI SDKs)
-3. Downloads a headless Chromium browser
-4. Initializes the database
-
-This takes 1-2 minutes on first run. Subsequent runs start in seconds.
-
-## Cookie Setup (VMs / Cloud Servers)
-
-Reddit blocks datacenter IPs. If running on a cloud server or VM:
-
-1. Log in to Reddit on your phone or laptop
-2. Install [Cookie-Editor](https://cookie-editor.com/) browser extension
-3. Export cookies for reddit.com as JSON
-4. Save to `$(npm root -g)/reddit-agent/data/cookies.json`
-
-On a personal computer with a regular IP, this step is not needed.
+The setup command shows the exact path after it finishes. This is a one-time step — cookies last for weeks.
 
 ## Configuration
 
-### Target Subreddits
+### Objective
+
+Your objective shapes everything — which threads get picked, what comments say, which DMs get sent. Set it during setup or change it anytime:
+
+```bash
+reddit-agent objective "promote my SaaS to developers without being pushy"
+```
+
+### Subreddits
 
 Edit `$(npm root -g)/reddit-agent/data/subreddits.yaml`:
 
 ```yaml
 subreddits:
-  # Easy subreddits for building karma (no requirements)
+  # Easy subs for building karma first
   - name: AskReddit
     max_daily_comments: 2
     min_karma: 0
-    tone: "Casual, short, relatable."
+    tone: "casual, one-liners, be funny or relatable"
 
-  # Your target subreddit (needs karma first)  
-  - name: your_niche_subreddit
-    keywords: [your, relevant, topics]
-    max_daily_comments: 3
-    min_karma: 50
-    tone: "Match the community style."
-    notes: "Any special rules for this community."
+  # Your target sub (needs karma first)
+  - name: SaaS
+    keywords: [AI tools, automation, growth]
+    max_daily_comments: 2
+    min_karma: 30
+    tone: "founder-to-founder, share real experience"
 ```
 
-The agent **automatically skips** subreddits your account doesn't have enough karma for, and builds karma on easier subs first.
+The agent auto-skips subreddits your account doesn't have enough karma for.
+
+### Engagement Modes
+
+All configurable in `.env`:
+
+| Mode | Default | What |
+|---|---|---|
+| `ENGAGE_COMMENT` | on | Comment on threads |
+| `ENGAGE_UPVOTE` | on | Upvote posts for natural activity |
+| `ENGAGE_REPLY` | on | Reply when people respond to you |
+| `ENGAGE_BROWSE` | on | Scroll subreddits like a real user |
+| `ENGAGE_DM_REPLY` | on | Reply to incoming DMs |
+| `ENGAGE_POST` | **off** | Create original text posts |
+| `ENGAGE_DM_OUTREACH` | **off** | Proactively DM people asking for help |
 
 ### Posting Limits
 
-Edit `$(npm root -g)/reddit-agent/.env`:
-
-| Setting | Default | What it does |
+| Setting | Default | What |
 |---|---|---|
-| `MAX_COMMENTS_PER_DAY` | 5 | Total daily comment limit |
-| `MIN_COMMENT_INTERVAL_MINUTES` | 20 | Minimum gap between posts |
-| `QUALITY_THRESHOLD` | 7 | Minimum AI quality score (1-10) |
+| `MAX_COMMENTS_PER_DAY` | 5 | Total daily limit |
+| `MIN_COMMENT_INTERVAL_MINUTES` | 20 | Gap between posts |
+| `QUALITY_THRESHOLD` | 7 | Min AI quality score (1-10) |
 
 ### AI Provider
 
-The agent auto-detects your AI provider from the environment:
+Auto-detected. No config needed if you have one of these in your environment:
 
-| Priority | What it checks |
-|---|---|
-| 1st | `ANTHROPIC_API_KEY` environment variable → uses Claude |
-| 2nd | `OPENAI_API_KEY` environment variable → uses GPT |
-| 3rd | Keys in `~/.bashrc` or `~/.profile` |
-| 4th | OpenClaw shell environment (auto-injected) |
+- `ANTHROPIC_API_KEY` → uses Claude
+- `OPENAI_API_KEY` → uses GPT
 
-**No API key?** If you're using this through an AI agent (OpenClaw, Claude Code), the agent's own LLM handles the intelligence. You don't need a separate key.
+Setup asks for a key if none is found. OpenClaw users can skip — the agent uses OpenClaw's LLM.
 
-**Running standalone without any agent?** You need either an Anthropic or OpenAI API key in your environment.
+Override the model: `REDDIT_AGENT_MODEL=gpt-4o` in `.env`
 
 ## Commands
 
-| Command | What it does |
+| Command | What |
 |---|---|
-| `reddit-agent setup` | Interactive setup (credentials + environment) |
+| `reddit-agent setup` | Interactive setup |
 | `reddit-agent run` | Run one engagement cycle |
-| `reddit-agent feedback` | Check karma and removals on past comments |
-| `reddit-agent digest` | Print performance summary |
+| `reddit-agent feedback` | Check karma and removals |
+| `reddit-agent digest` | Performance summary |
+| `reddit-agent objective "new goal"` | Change objective |
+| `reddit-agent status` | Config and health check |
 | `reddit-agent update` | Pull latest version |
-| `reddit-agent status` | Show config and health |
-| `reddit-agent help` | Show all commands |
+| `reddit-agent setup-password` | Update password securely |
 
 ## How It Works
 
+Each cycle (every 2 hours or on demand):
+
 ```
-┌─────────────────────────────────────────────┐
-│  Scheduler (cron / manual / agent trigger)  │
-└──────────────────┬──────────────────────────┘
-                   ▼
-│  1. Check account karma                     │
-│  2. Pick subreddits matching karma level    │
-│  3. Browse subreddit feed                   │
-│  4. AI evaluates each thread                │
-│  5. AI generates a comment                  │
-│  6. AI quality-checks (natural? safe?)      │
-│  7. Stealth browser posts the comment       │
-│  8. Verify it's visible (shadowban check)   │
-│  9. Log to database + update learnings      │
-└─────────────────────────────────────────────┘
+1. Check inbox        → detect bans, auto-disable banned subs
+2. Check karma        → filter subs by account karma level
+3. Browse             → scroll subs naturally
+4. Comment            → find threads → evaluate → generate → quality-check → post
+5. Upvote             → upvote a few posts per sub
+6. Reply              → respond to people who replied to us
+7. DM replies         → read and reply to incoming DMs
+8. DM outreach        → find people asking for help, DM them (if enabled)
+9. Feedback           → check karma on past comments, detect removals
+10. Learn             → write what worked/didn't for next cycle
 ```
 
 ### Karma Building
 
-New Reddit accounts have zero karma and get auto-removed from most subreddits. The agent handles this:
+New accounts start by posting in easy subs (r/AskReddit, r/NoStupidQuestions). Once karma reaches the threshold, the agent unlocks your target subs automatically.
 
-- **Phase 1** (0-20 karma): Posts genuine helpful answers on r/AskReddit, r/NoStupidQuestions
-- **Phase 2** (20-50 karma): Unlocks medium subreddits like r/Entrepreneur
-- **Phase 3** (50+ karma): Unlocks competitive subreddits like r/SEO, r/marketing
+### Lead Tracking
 
-Fully automatic. The agent checks karma at the start of each cycle.
+When DMs come in from people related to your objective, or when outreach DMs are sent, leads are saved to `data/leads.json` for your review.
 
-### Anti-Detection
+### Learning
 
-- Randomized browser fingerprints (user agent, viewport, timezone)
-- Human-like typing (30-120ms per keystroke, variable speed)
-- Randomized posting intervals (15-30 min gaps)
-- Cookie-based auth (no API, no automation flags)
-- Shadowban detection after every post
+The agent writes what it learns to `data/learnings.md` — which comments got upvoted, which got removed, what mod patterns to avoid. This file is fed into future comment generation.
 
-### Learning Loop
+## Monitoring
 
-The agent writes what it learns to `data/learnings.md`:
-
-```markdown
-## 2026-04-10 — r/SEO
-- Comment on 'AI overviews' thread got +12 karma. Technical tone worked.
-- Comment on 'best tools' thread removed by mod. Too promotional.
-- Lesson: r/SEO mods flag tool recommendations. Be more subtle.
-```
-
-This file is fed into future comment generation, so the agent literally gets smarter over time.
-
-## AI Agent Integration
-
-### OpenClaw
-
-When installed on an OpenClaw machine, the agent automatically:
-- Registers as an OpenClaw skill
-- Sets up a cron job (every 2 hours)
-- Reports results through your chat (WhatsApp, Telegram, etc.)
-
-### Claude Code
-
-Claude Code reads `AGENTS.md` automatically. Just say:
-> "Run the Reddit agent"
-
-### Any AI Agent
-
-The `AGENTS.md` file in the package root contains complete instructions for any AI agent to install, configure, and operate reddit-agent.
+| What | Command |
+|---|---|
+| Performance | `reddit-agent digest` |
+| Learnings | `cat $(npm root -g)/reddit-agent/data/learnings.md` |
+| Subreddit intel | `cat $(npm root -g)/reddit-agent/data/subreddit_reports/*.md` |
+| Leads | `cat $(npm root -g)/reddit-agent/data/leads.json` |
+| Errors | `ls $(npm root -g)/reddit-agent/data/screenshots/` |
 
 ## Updating
 
@@ -232,19 +203,16 @@ The `AGENTS.md` file in the package root contains complete instructions for any 
 reddit-agent update
 ```
 
-Or reinstall:
-```bash
-npm i -g reddit-agent@latest
-```
+Or: `npm i -g reddit-agent@latest`
 
-When the package is updated, `reddit-agent update` pulls the new code. Your config, data, and learnings are preserved.
+Updates include new features, better prompts, and bug fixes. Config and data are preserved.
 
 ## Requirements
 
-- **Node.js 18+** (for the CLI wrapper)
-- **Python 3.12+** (auto-bootstrapped on first run)
-- **2GB RAM** (for headless Chromium)
-- An AI API key (Anthropic or OpenAI) OR an AI agent that provides LLM access
+- Node.js 18+
+- Python 3.12+ (auto-installed on first run)
+- ~2GB RAM (for headless Chromium)
+- An Anthropic or OpenAI API key (or an AI agent that provides LLM access)
 
 ## License
 
