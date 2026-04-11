@@ -117,9 +117,13 @@ function detectEnvironment() {
     apiKeySource: null,
   };
 
-  // Check OpenClaw
+  // Check OpenClaw — must have both the config dir AND the gateway/workspace
+  // (just having ~/.openclaw isn't enough — it could be leftover from other tools)
   const openclawDir = path.join(process.env.HOME, ".openclaw");
-  env.isOpenClaw = fs.existsSync(openclawDir);
+  const openclawConfig = path.join(openclawDir, "openclaw.json");
+  const openclawWorkspace = path.join(openclawDir, "workspace");
+  env.isOpenClaw =
+    fs.existsSync(openclawConfig) && fs.existsSync(openclawWorkspace);
 
   // Check API keys in environment
   if (process.env.ANTHROPIC_API_KEY) {
@@ -219,26 +223,23 @@ async function setup() {
   console.log();
   const objective = await ask("  Your objective: ");
 
-  // ─── API key (only ask if not detected) ────────
+  // ─── API key (always ask if not detected) ──────
   let apiKey = "";
   let apiProvider = "";
   if (!env.hasAnthropicKey && !env.hasOpenAIKey) {
     console.log();
-    console.log("No AI API key detected in your environment.");
+    console.log("  No AI API key detected in your environment.");
+    console.log("  The agent needs one to generate comments and evaluate threads.");
+    console.log("  Get a key from: console.anthropic.com or platform.openai.com");
     if (env.isOpenClaw) {
-      console.log("  OpenClaw will provide LLM access — no key needed.");
-    } else {
-      console.log("  The agent needs an API key to generate comments.");
-      console.log("  Get one from: console.anthropic.com or platform.openai.com");
-      console.log();
-      apiKey = await ask("  API key (or Enter to skip): ");
-      if (apiKey) {
-        if (apiKey.startsWith("sk-ant")) {
-          apiProvider = "ANTHROPIC_API_KEY";
-        } else {
-          apiProvider = "OPENAI_API_KEY";
-        }
-      }
+      console.log("  (OpenClaw may provide one at runtime — press Enter to skip)");
+    }
+    console.log();
+    apiKey = await ask("  API key (or Enter to skip): ");
+    if (apiKey) {
+      apiProvider = apiKey.startsWith("sk-ant")
+        ? "ANTHROPIC_API_KEY"
+        : "OPENAI_API_KEY";
     }
   }
 
@@ -246,7 +247,9 @@ async function setup() {
   console.log();
   const maxDaily = (await ask("  Max comments/day [5]: ")) || "5";
   const engagePost =
-    (await ask("  Create original posts? [n]: ")) || "n";
+    (await ask("  Create original posts? (y/n) [n]: ")) || "n";
+  const engageDmOutreach =
+    (await ask("  Proactive DM outreach to leads? (y/n) [n]: ")) || "n";
 
   // ─── Write .env via Python (handles special chars) ─────
   const envLines = [
@@ -268,7 +271,7 @@ async function setup() {
     `ENGAGE_POST=${engagePost.toLowerCase().startsWith("y") ? "true" : "false"}`,
     `ENGAGE_BROWSE=true`,
     `ENGAGE_DM_REPLY=true`,
-    `ENGAGE_DM_OUTREACH=false`,
+    `ENGAGE_DM_OUTREACH=${engageDmOutreach.toLowerCase().startsWith("y") ? "true" : "false"}`,
     `LOG_LEVEL=INFO`,
     `SCREENSHOT_ON_ERROR=true`
   );
