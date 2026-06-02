@@ -181,7 +181,10 @@ async def run_cycle(config: Config) -> dict:
         # Engagement: upvote, browse, reply to replies
         from src.browser.engage import upvote_posts, reply_to_replies, browse_subreddit
 
-        if config.engage_upvote:
+        if config.dry_run:
+            log.info("[DRY RUN] Skipping mutating engagement (upvote, reply, DM). Browse still runs.")
+
+        if config.engage_upvote and not config.dry_run:
             log.info("Upvoting posts for natural activity")
             for sub in config.subreddits[:3]:
                 if sub.min_karma <= account_karma:
@@ -190,7 +193,7 @@ async def run_cycle(config: Config) -> dict:
                     except Exception as e:
                         log.warning(f"Upvote failed in r/{sub.name}: {e}")
 
-        if config.engage_reply:
+        if config.engage_reply and not config.dry_run:
             log.info("Checking for replies to our comments")
             try:
                 await reply_to_replies(session, config)
@@ -208,8 +211,8 @@ async def run_cycle(config: Config) -> dict:
                 except Exception as e:
                     log.warning(f"Browse failed: {e}")
 
-        # DMs: reply to incoming + proactive outreach
-        if config.engage_dm_reply or config.engage_dm_outreach:
+        # DMs: reply to incoming + proactive outreach (both mutate; skip on dry run)
+        if (config.engage_dm_reply or config.engage_dm_outreach) and not config.dry_run:
             from src.browser.dms import (
                 check_and_reply_dms,
                 find_outreach_opportunities,
@@ -444,6 +447,17 @@ async def _process_thread(
         results.setdefault("compliance_blocks", 0)
         results["compliance_blocks"] += 1
         update_thread_evaluation(thread.id, score.total, "skipped")
+        return
+
+    # DRY RUN: show what we WOULD post, but perform no mutating action.
+    if config.dry_run:
+        log.info(
+            f"[DRY RUN] WOULD POST to {thread.url} (tier {tier}, "
+            f"quality {quality.average:.1f}): {comment_text}"
+        )
+        results.setdefault("dry_run_would_post", 0)
+        results["dry_run_would_post"] += 1
+        update_thread_evaluation(thread.id, score.total, "evaluated")
         return
 
     # Post the comment
