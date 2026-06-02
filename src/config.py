@@ -32,6 +32,7 @@ class SubredditConfig:
     tone: str
     notes: str = ""
     min_karma: int = 0
+    min_account_age_days: int = 0
 
 
 @dataclass
@@ -118,6 +119,7 @@ def load_subreddits() -> list[SubredditConfig]:
             tone=s.get("tone", ""),
             notes=s.get("notes", ""),
             min_karma=s.get("min_karma", 0),
+            min_account_age_days=s.get("min_account_age_days", 0),
         )
         for s in raw.get("subreddits", [])
     ]

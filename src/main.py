@@ -357,6 +357,51 @@ async def _process_thread(
             results["comments_skipped"] += 1
             return
 
+    # COMPLIANCE GATE (runs AFTER quality, BEFORE posting).
+    # Deterministic floor first: a block here is TERMINAL — no regeneration,
+    # because regenerating text cannot fix low karma/age. Links may be stripped.
+    from src.intelligence.compliance import deterministic_gate, extract_policy
+    from src.intelligence.compliance_judge import judge_fuzzy_compliance
+    from src.browser.karma import get_account_karma, get_account_age_days
+    from src.intelligence.generator import _load_subreddit_intel
+
+    account_karma = await get_account_karma(session)
+    account_age_days = await get_account_age_days(session)
+    policy = extract_policy(_load_subreddit_intel(subreddit.name), subreddit)
+
+    gate = deterministic_gate(
+        comment_text, policy, account_karma, account_age_days
+    )
+    if gate.blocked:
+        log.warning(
+            f"Compliance gate BLOCKED thread {thread.id}: {'; '.join(gate.reasons)}"
+        )
+        results["comments_skipped"] += 1
+        results.setdefault("compliance_blocks", 0)
+        results["compliance_blocks"] += 1
+        update_thread_evaluation(thread.id, score.total, "skipped")
+        return
+    if gate.rewritten_text is not None:
+        comment_text = gate.rewritten_text
+
+    # Fuzzy judge for subjective rules. May only ADD a block; fails closed.
+    judge = await judge_fuzzy_compliance(
+        config=config,
+        comment_text=comment_text,
+        subreddit_name=subreddit.name,
+        thread_title=thread.title,
+        rules=subreddit.notes,
+    )
+    if not judge.compliant:
+        log.warning(
+            f"Fuzzy compliance judge BLOCKED thread {thread.id}: {judge.reason}"
+        )
+        results["comments_skipped"] += 1
+        results.setdefault("compliance_blocks", 0)
+        results["compliance_blocks"] += 1
+        update_thread_evaluation(thread.id, score.total, "skipped")
+        return
+
     # Post the comment
     log.info(f"Posting comment to thread {thread.id}")
     post_result = await browser_post(session, thread.url, comment_text)
