@@ -304,6 +304,21 @@ async def _process_thread(
         update_thread_evaluation(thread.id, score.total, "skipped")
         return
 
+    # Decide the content tier for this comment (three-tier authority mix).
+    # Classify the desired tier from brand relevance, then cap it to keep
+    # promotional content rare over a rolling window.
+    from src.intelligence.tiers import allowed_tier, classify_desired_tier
+    from src.db import get_recent_tier_counts
+
+    desired = classify_desired_tier(config.objective, config.domain, score.total)
+    tier_decision = allowed_tier(
+        desired,
+        get_recent_tier_counts(config.tier_window),
+        window=config.tier_window,
+    )
+    tier = tier_decision.tier
+    log.info(f"Content tier {tier} (desired {desired}): {tier_decision.reason}")
+
     # Generate comment (karma-mode = genuine, no brand agenda)
     comment_text = await generate_comment(
         config=config,
@@ -312,6 +327,7 @@ async def _process_thread(
         thread_body=thread_content.get("body", thread.body),
         thread_comments=comments_text,
         karma_mode=karma_mode,
+        tier=tier,
     )
 
     if not comment_text:
@@ -340,6 +356,7 @@ async def _process_thread(
             thread_body=thread_content.get("body", thread.body),
             thread_comments=comments_text,
             karma_mode=karma_mode,
+            tier=tier,
         )
 
         if not comment_text:
@@ -414,6 +431,7 @@ async def _process_thread(
             subreddit=subreddit.name,
             comment_text=comment_text,
             quality_score=quality.average,
+            tier=tier,
         )
         update_thread_evaluation(thread.id, score.total, "commented")
         cadence.record_post()

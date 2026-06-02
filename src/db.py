@@ -38,6 +38,7 @@ def init_db(db_path: Path = DB_PATH) -> None:
                 last_checked_at TEXT,
                 status TEXT DEFAULT 'posted',  -- posted, removed, shadowbanned, deleted
                 removal_reason TEXT,
+                tier INTEGER DEFAULT 1,  -- 1=pure value, 2=soft relevance, 3=direct mention
                 FOREIGN KEY (thread_id) REFERENCES threads(id)
             );
 
@@ -75,6 +76,11 @@ def init_db(db_path: Path = DB_PATH) -> None:
             CREATE INDEX IF NOT EXISTS idx_comments_status ON comments(status);
             CREATE INDEX IF NOT EXISTS idx_comments_posted ON comments(posted_at);
         """)
+
+        # Migrate older DBs that predate the `tier` column.
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(comments)").fetchall()}
+        if "tier" not in cols:
+            conn.execute("ALTER TABLE comments ADD COLUMN tier INTEGER DEFAULT 1")
 
 
 @contextmanager
@@ -131,16 +137,36 @@ def record_comment(
     subreddit: str,
     comment_text: str,
     quality_score: float,
+    tier: int = 1,
 ) -> None:
-    """Record a posted comment."""
+    """Record a posted comment, tagged with its content tier (1/2/3)."""
     with get_connection() as conn:
         conn.execute(
             """INSERT INTO comments
-               (id, thread_id, subreddit, comment_text, quality_score, posted_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (id, thread_id, subreddit, comment_text, quality_score, posted_at, tier)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (comment_id, thread_id, subreddit, comment_text, quality_score,
-             datetime.utcnow().isoformat()),
+             datetime.utcnow().isoformat(), tier),
         )
+
+
+def get_recent_tier_counts(window: int = 20) -> dict[int, int]:
+    """Count comments by tier across the last `window` posted comments.
+
+    Used by the three-tier mix to keep promotional (tier 3) content rare over
+    a rolling window, which is meaningful even at low daily volume.
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT tier FROM comments
+               ORDER BY posted_at DESC LIMIT ?""",
+            (window,),
+        ).fetchall()
+    counts = {1: 0, 2: 0, 3: 0}
+    for r in rows:
+        t = r[0] if r[0] in (1, 2, 3) else 1
+        counts[t] += 1
+    return counts
 
 
 def get_comments_needing_check(hours_since_post: int = 4) -> list[dict]:

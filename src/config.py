@@ -54,6 +54,11 @@ class Config:
 
     # Objective — the user's goal for Reddit engagement
     objective: str = ""
+    # Domain — the topic/field the account builds authority in (drives the
+    # three-tier content mix). Empty falls back to brand-relevance only.
+    domain: str = ""
+    # Rolling window size for tier-ratio enforcement.
+    tier_window: int = 20
 
     # Engagement modes
     engage_comment: bool = True
@@ -143,6 +148,8 @@ def load_config() -> Config:
         quality_threshold=int(os.environ.get("QUALITY_THRESHOLD", "7")),
         cycle_interval_hours=int(os.environ.get("CYCLE_INTERVAL_HOURS", "2")),
         objective=os.environ.get("REDDIT_AGENT_OBJECTIVE", ""),
+        domain=os.environ.get("REDDIT_AGENT_DOMAIN", ""),
+        tier_window=int(os.environ.get("TIER_WINDOW", "20")),
         engage_comment=os.environ.get("ENGAGE_COMMENT", "true").lower() == "true",
         engage_upvote=os.environ.get("ENGAGE_UPVOTE", "true").lower() == "true",
         engage_reply=os.environ.get("ENGAGE_REPLY", "true").lower() == "true",
