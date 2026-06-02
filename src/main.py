@@ -525,10 +525,19 @@ async def main():
         "--resume", action="store_true",
         help="Clear the circuit breaker and resume posting",
     )
+    parser.add_argument(
+        "--status", action="store_true",
+        help="Print a JSON status snapshot for a driving agent (no actions taken)",
+    )
     args = parser.parse_args()
 
     config = load_config()
     init_db()
+
+    if args.status:
+        from src.status import print_status
+        print_status(config)
+        return
 
     if args.resume:
         from src.safety.breaker import clear, get_state
