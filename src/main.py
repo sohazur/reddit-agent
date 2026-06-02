@@ -78,6 +78,21 @@ async def run_cycle(config: Config) -> dict:
 
     cadence = CadenceManager(config)
 
+    # GLOBAL CIRCUIT BREAKER: if tripped, do NOT post anything. Still run the
+    # feedback loop so we keep monitoring the account while paused.
+    from src.safety.breaker import is_paused, get_state, evaluate_feedback, trip
+    if is_paused():
+        state = get_state()
+        log.warning(f"PAUSED ({state.reason}, since {state.since}) — feedback only")
+        session = await RedditSession(config).start()
+        try:
+            feedback = await run_feedback_loop(config, session)
+            update_learnings(feedback)
+        finally:
+            await session.close()
+        results["paused"] = True
+        return results
+
     if not cadence.can_post_today():
         log.info("Daily quota exhausted, running feedback only")
         session = await RedditSession(config).start()
@@ -245,6 +260,18 @@ async def run_cycle(config: Config) -> dict:
                 config,
                 "WARNING",
                 f"High removal rate: {feedback['removed']}/{feedback['checked']} comments removed",
+            )
+
+        # GLOBAL CIRCUIT BREAKER: trip if signals warrant, pausing all future
+        # posting until a human runs `reddit-agent --resume`.
+        breaker_reason = evaluate_feedback(feedback, results)
+        if breaker_reason:
+            trip(breaker_reason)
+            send_alert(
+                config,
+                "CRITICAL",
+                f"Circuit breaker TRIPPED ({breaker_reason}). All posting paused. "
+                f"Run `reddit-agent --resume` after you investigate.",
             )
 
     except Exception as e:
@@ -476,10 +503,23 @@ async def main():
     parser.add_argument(
         "--digest", action="store_true", help="Send daily digest only"
     )
+    parser.add_argument(
+        "--resume", action="store_true",
+        help="Clear the circuit breaker and resume posting",
+    )
     args = parser.parse_args()
 
     config = load_config()
     init_db()
+
+    if args.resume:
+        from src.safety.breaker import clear, get_state
+        state = get_state()
+        if clear():
+            print(f"Resumed. (was paused: {state.reason})")
+        else:
+            print("Not paused — nothing to resume.")
+        return
 
     if args.digest:
         summary = get_daily_summary()
