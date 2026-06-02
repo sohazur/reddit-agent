@@ -105,13 +105,20 @@ def _parse_and_cache_age(profile_text: str) -> None:
             except ValueError:
                 continue
 
-    # 2) Relative age: "2y", "2 yr", "8mo", "8 months"
-    m = re.search(r"\b(\d+)\s*(y|yr|year|mo|month)s?\b", profile_text, re.IGNORECASE)
+    # 2) Relative age, but ONLY when anchored to an age/cake label. Matching a
+    #    bare "5 months" anywhere would catch a post timestamp ("5 months ago")
+    #    and report a confidently-wrong age — which would let a too-young account
+    #    pass the age gate. Anchoring keeps us fail-closed when unsure.
+    m = re.search(
+        r"(?:reddit\s*age|cake\s*day|account\s*age)[^\d]{0,20}(\d+)\s*(y|yr|year|mo|month)s?\b",
+        profile_text,
+        re.IGNORECASE,
+    )
     if m:
         n = int(m.group(1))
         unit = m.group(2).lower()
         _cached_age_days = n * 365 if unit.startswith("y") else n * 30
-        log.info(f"Account age: ~{_cached_age_days}d (relative)")
+        log.info(f"Account age: ~{_cached_age_days}d (relative, anchored)")
         return
 
     log.warning("Could not parse account age; treating as unknown (fail closed)")

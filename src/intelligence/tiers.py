@@ -53,15 +53,18 @@ def allowed_tier(
 
     for tier in range(desired_tier, 1, -1):
         target = ratio.get(tier, 0.0)
-        current_share = recent_counts.get(tier, 0) / total
-        # Allow if posting one more keeps us within (a small slack over) target.
+        # Gate on the share AFTER posting one more, so a single post can't
+        # overshoot a small window (e.g. tier 3 hitting 33% on a 2-comment
+        # history). No slack: a rare tier genuinely waits until enough value
+        # history exists to "afford" it. Tier 1 is always allowed (loop floor),
+        # so there is no deadlock.
         projected_share = (recent_counts.get(tier, 0) + 1) / (total + 1)
-        if projected_share <= target + 1e-9 or current_share < target:
+        if projected_share <= target + 1e-9:
             return TierDecision(
                 tier=tier,
-                reason=f"tier {tier} within target ({current_share:.0%} < {target:.0%})",
+                reason=f"tier {tier} within target (projected {projected_share:.0%} <= {target:.0%})",
             )
-        log.info(f"Tier {tier} full ({current_share:.0%} >= {target:.0%}), downgrading")
+        log.info(f"Tier {tier} full (projected {projected_share:.0%} > {target:.0%}), downgrading")
 
     return TierDecision(tier=1, reason="downgraded to tier 1 (higher tiers full)")
 

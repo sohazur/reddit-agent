@@ -39,6 +39,19 @@ def test_tier_3_downgraded_when_full():
     assert d.tier < 3
 
 
+def test_tier_3_not_leaked_on_small_window():
+    # 9 comments, 0 promos. Posting a promo → 1/10 = 10%, double the 5% target.
+    # Must downgrade rather than leak a burst of promo (the shill signal).
+    d = allowed_tier(3, {1: 9})
+    assert d.tier < 3
+
+
+def test_tier_3_not_leaked_on_tiny_window():
+    # 2 comments, posting a promo would be 33% — must not allow.
+    d = allowed_tier(3, {1: 2})
+    assert d.tier < 3
+
+
 def test_tier_1_always_allowed():
     counts = {1: 20, 2: 0, 3: 0}
     d = allowed_tier(1, counts)

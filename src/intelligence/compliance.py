@@ -22,24 +22,38 @@ from src.log import get_logger
 
 log = get_logger("compliance")
 
-# Common TLDs used to spot bare and obfuscated domains.
-_TLDS = "com|net|org|io|co|ai|app|dev|me|ly|gg|xyz|info|biz|tv|us|uk"
+# Bare-domain TLD: ANY 2-24 char alphabetic TLD, not a fixed list. Enumerating
+# TLDs fails open — the LLM can emit any TLD (.link, .shop, .online, .click, …)
+# and a link would slip through a no-links subreddit. We match the SHAPE of a
+# domain and fail closed (over-block beats letting a banned link post).
+_TLD = r"[a-z]{2,24}"
+
+# Tiny denylist of strings that look like "word.tld" but are normal prose, so we
+# don't block every comment that says "e.g." or "i.e.". These are the only
+# common English abbreviations that collide with the domain shape.
+_NOT_LINKS = re.compile(r"\b(?:e\.g|i\.e|etc|vs|a\.m|p\.m)\.", re.IGNORECASE)
+
+
+def _strip_prose_abbreviations(text: str) -> str:
+    """Blank out common abbreviations so they don't read as bare domains."""
+    return _NOT_LINKS.sub(" ", text)
+
 
 # Real links: "http(s)://...", "www.example.com", "example.com".
 _URL_RE = re.compile(
     rf"""(
         https?://\S+                       # http(s):// links
       | www\.\S+                           # www. links
-      | \b[\w-]+\.(?:{_TLDS})\b            # bare domain example.com
+      | \b[a-z0-9][\w-]*\.{_TLD}\b         # bare domain example.<tld>
     )""",
     re.IGNORECASE | re.VERBOSE,
 )
 
 # Obfuscated links: "example dot com", "example[.]com", "example (dot) com".
 _OBFUSCATED_RE = re.compile(
-    rf"""\b[\w-]+
+    rf"""\b[a-z0-9][\w-]*
         \s*(?:\[\s*\.\s*\]|\(\s*\.\s*\)|\s+dot\s+|\s*\.\s*)\s*
-        (?:{_TLDS})\b
+        {_TLD}\b
     """,
     re.IGNORECASE | re.VERBOSE,
 )
@@ -89,12 +103,20 @@ class GateResult:
 
 def contains_link(text: str) -> bool:
     """True if the text contains a URL or an obfuscated URL."""
-    return bool(_URL_RE.search(text) or _OBFUSCATED_RE.search(text))
+    scrubbed = _strip_prose_abbreviations(text)
+    return bool(_URL_RE.search(scrubbed) or _OBFUSCATED_RE.search(scrubbed))
 
 
 def strip_links(text: str) -> str:
-    """Remove URLs (including obfuscated) and collapse leftover whitespace."""
+    """Remove URLs (including obfuscated) and collapse leftover whitespace.
+
+    Common prose abbreviations (e.g., i.e.) are preserved — only real/obfuscated
+    links are removed.
+    """
+    # Operate on the original text so abbreviations survive, but the link regexes
+    # won't match them because they don't have a domain-like left side after a TLD.
     cleaned = _OBFUSCATED_RE.sub("", _URL_RE.sub("", text))
+    # Restore any abbreviation that got caught (defensive — they rarely match).
     return re.sub(r"\s{2,}", " ", cleaned).strip()
 
 

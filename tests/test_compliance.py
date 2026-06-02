@@ -26,6 +26,12 @@ from src.intelligence.compliance import (
     "visit example dot com",
     "try example[.]com now",
     "my site is foo.io seriously",
+    # TLDs NOT in any hardcoded list — must still be caught (fail closed):
+    "go to mysite.link now",
+    "grab it at newsite.click",
+    "we sell at coolstuff.shop",
+    "read more at blog.online",
+    "check thing.tech for specs",
 ])
 def test_contains_link_detects_urls_and_obfuscations(text):
     assert contains_link(text) is True
@@ -35,6 +41,10 @@ def test_contains_link_detects_urls_and_obfuscations(text):
     "this is a normal comment with no links",
     "i think that's a good idea honestly",
     "yeah we hit that too, annoying",
+    # Common abbreviations must NOT read as links (no false-positive blocks):
+    "use a cache, e.g. redis, and it's fine",
+    "i.e. the thing you described works",
+    "tabs vs spaces, etc. you know the drill",
 ])
 def test_contains_link_false_on_clean_text(text):
     assert contains_link(text) is False
