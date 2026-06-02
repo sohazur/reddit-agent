@@ -1,0 +1,16 @@
+# systemd service: one heartbeat tick. Triggered by reddit-agent.timer.
+# Install to /etc/systemd/system/ (or ~/.config/systemd/user/ for a user unit).
+# See deploy/DEPLOY.md.
+[Unit]
+Description=Reddit Agent heartbeat (one tick of the agent loop)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Adjust User and paths to your install.
+User=%i
+Environment=REDDIT_AGENT_DIR=%h/.reddit-agent
+ExecStart=%h/.reddit-agent/deploy/heartbeat.sh
+# Don't let one bad tick mark the unit failed forever.
+SuccessExitStatus=0 1
