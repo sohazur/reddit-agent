@@ -129,6 +129,10 @@ async def run_cycle(config: Config) -> dict:
         account_karma = await get_account_karma(session)
         log.info(f"Account karma: {account_karma}")
 
+        # Ensure a consistent persona exists (generated once, then reused).
+        from src.intelligence.persona import ensure_persona
+        ensure_persona(config)
+
         for subreddit in config.subreddits:
             if not cadence.can_post_today():
                 log.info("Daily quota reached, stopping")

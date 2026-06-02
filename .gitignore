@@ -12,3 +12,6 @@ data/subreddit_reports/
 .npmrc
 data/cookies.json
 data/agent.lock
+data/persona.yaml
+data/paused.flag
+data/.DS_Store

@@ -87,10 +87,16 @@ _TIER_GUIDANCE = {
 
 
 def _build_objective(config: Config, tier: int) -> str:
-    """Combine objective, domain, and tier framing into one instruction."""
+    """Combine persona, objective, domain, and tier framing into one instruction."""
+    from src.intelligence.persona import persona_prompt
+
     objective = config.objective or "Be helpful and build authority in the community."
     domain = getattr(config, "domain", "")
-    parts = [objective]
+    parts = []
+    persona = persona_prompt()
+    if persona:
+        parts.append(persona)
+    parts.append(objective)
     if domain:
         parts.append(f"Your area of expertise: {domain}.")
     parts.append(_TIER_GUIDANCE.get(tier, _TIER_GUIDANCE[1]))
