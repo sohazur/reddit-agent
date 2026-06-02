@@ -158,6 +158,30 @@ def get_comments_needing_check(hours_since_post: int = 4) -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def get_top_comments(
+    subreddit: str, limit: int = 3, min_karma: int = 5
+) -> list[dict]:
+    """Get the account's best-performing SURVIVED comments in a subreddit.
+
+    Only returns comments that have actually been re-checked by the feedback
+    loop (last_checked_at IS NOT NULL) and survived (status='posted'), so a
+    freshly posted karma=1 comment never counts as an exemplar. Used to inject
+    proven exemplars into generation.
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT comment_text, karma FROM comments
+               WHERE subreddit = ?
+                 AND status = 'posted'
+                 AND last_checked_at IS NOT NULL
+                 AND karma >= ?
+               ORDER BY karma DESC
+               LIMIT ?""",
+            (subreddit, min_karma, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def update_comment_feedback(
     comment_id: str, karma: int, status: str, removal_reason: str | None = None
 ) -> None:
