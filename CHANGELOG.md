@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.10.2] - 2026-06-02
+
+### Fixed
+- Comment posting reliability. The composer was found only ~1 in 9 times because the agent scrolled down into the comment list, past the composer that sits at the top of the comments. It now scrolls the composer into view before looking, and retries the same way. Verified live — a single-thread post test succeeded on the first try.
+
 ## [0.10.1] - 2026-06-02
 
 ### Fixed
