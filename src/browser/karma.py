@@ -25,33 +25,37 @@ async def get_account_karma(session) -> int:
 
     page = session.page
     try:
-        # Navigate to the user profile. Try several signals for the username:
-        # the account-menu testid, any /user/<name> link, or the <shreddit-app>
-        # user attribute that modern Reddit sets.
-        username = await page.evaluate("""
-            () => {
-                const clean = s => (s || '').trim().replace(/^u\\//, '');
-                // 1) explicit username testid
-                let el = document.querySelector('[data-testid="username"]');
-                if (el && el.textContent.trim()) return clean(el.textContent);
-                // 2) shreddit app/header carries the logged-in user
-                const app = document.querySelector('shreddit-app, shreddit-async-loader');
-                const attr = app && (app.getAttribute('user') || app.getAttribute('current-user'));
-                if (attr) return clean(attr);
-                // 3) any profile link in the header nav
-                const link = document.querySelector('a[href^="/user/"]');
-                if (link) {
-                    const m = link.getAttribute('href').match(/\\/user\\/([^/]+)/);
-                    if (m) return clean(m[1]);
-                }
-                return '';
-            }
-        """)
+        # We already know who we are — it's the login username in config. Use it
+        # directly instead of scraping the header (which varies by Reddit layout
+        # and was the cause of the karma=0 bug). Fall back to a page scrape only
+        # if config somehow lacks it.
+        username = ""
+        try:
+            username = session.config.reddit_account.username
+        except AttributeError:
+            username = ""
 
         if not username:
-            log.warning("Could not determine username from page")
+            username = await page.evaluate("""
+                () => {
+                    const clean = s => (s || '').trim().replace(/^u\\//, '');
+                    const el = document.querySelector('[data-testid="username"]');
+                    if (el && el.textContent.trim()) return clean(el.textContent);
+                    const link = document.querySelector('a[href^="/user/"]');
+                    if (link) {
+                        const m = link.getAttribute('href').match(/\\/user\\/([^/]+)/);
+                        if (m) return clean(m[1]);
+                    }
+                    return '';
+                }
+            """)
+
+        if not username:
+            log.warning("Could not determine username (not in config or page)")
             _cached_karma = 0
             return 0
+
+        log.info(f"Reading profile for u/{username}")
 
         await page.goto(
             f"https://www.reddit.com/user/{username}/",
