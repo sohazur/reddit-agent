@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.9.2] - 2026-06-02
+
+### Fixed
+- Open the modern Reddit comment composer before posting. The first live run generated good comments but failed to post some of them with "comment_box_not_found" — the editor only appears after clicking an "Add a comment" trigger, and the old selectors were stale. The agent now clicks the trigger (with a legacy fallback), retries once, and submits via Cmd/Ctrl+Enter with a button-click fallback. (First real comment posted successfully during this run.)
+
 ## [0.9.1] - 2026-06-02
 
 ### Fixed
