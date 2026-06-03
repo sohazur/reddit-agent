@@ -15,6 +15,64 @@ from src.log import get_logger
 log = get_logger("engage")
 
 
+async def join_subreddit(session, subreddit_name: str) -> bool:
+    """Join (subscribe to) a subreddit if not already a member.
+
+    Real members behave more naturally and some subs gate posting on membership.
+    Idempotent: returns True if joined or already a member, False on failure.
+    """
+    page = session.page
+    try:
+        await page.goto(
+            f"https://www.reddit.com/r/{subreddit_name}/",
+            wait_until="domcontentloaded",
+        )
+        await asyncio.sleep(human_delay(1500, 3000))
+
+        # If a "Joined" state is already shown, we're a member.
+        already = await page.evaluate("""
+            () => {
+                const els = Array.from(document.querySelectorAll(
+                    'button, [role="button"], shreddit-join-button'
+                ));
+                return els.some(e => /joined|leave/i.test(
+                    (e.innerText || '') + ' ' + (e.getAttribute('aria-label') || '')
+                ));
+            }
+        """)
+        if already:
+            log.info(f"Already a member of r/{subreddit_name}")
+            return True
+
+        # Click the Join button (text or aria-label "Join").
+        clicked = await page.evaluate("""
+            () => {
+                const els = Array.from(document.querySelectorAll(
+                    'button, [role="button"], shreddit-join-button'
+                ));
+                for (const e of els) {
+                    const t = ((e.innerText || '') + ' ' +
+                               (e.getAttribute('aria-label') || '')).toLowerCase().trim();
+                    if (t === 'join' || t.endsWith(' join') || t.startsWith('join ')) {
+                        e.scrollIntoView({block: 'center'});
+                        e.click();
+                        return true;
+                    }
+                }
+                return false;
+            }
+        """)
+        if clicked:
+            await asyncio.sleep(human_delay(1000, 2000))
+            log.info(f"Joined r/{subreddit_name}")
+            return True
+        log.info(f"No Join button found for r/{subreddit_name} (maybe already joined)")
+        return False
+    except Exception as e:
+        log.warning(f"Join failed for r/{subreddit_name}: {e}")
+        return False
+
+
 async def upvote_posts(session, subreddit_name: str, count: int = 3) -> int:
     """Upvote a few posts in a subreddit to look like a real user.
 
@@ -37,23 +95,35 @@ async def upvote_posts(session, subreddit_name: str, count: int = 3) -> int:
     except Exception:
         pass
 
-    # Find upvote buttons
+    # Our own username — never upvote our own content (a ban signal).
+    try:
+        my_username = (session.config.reddit_account.username or "").lower()
+    except AttributeError:
+        my_username = ""
+
+    # Iterate posts (not bare buttons) so we can check authorship per post and
+    # skip our own. shreddit-post carries the author on an attribute.
+    posts = await page.query_selector_all("shreddit-post")
+    indices = list(range(len(posts)))
+    random.shuffle(indices)  # don't always hit the top posts
+
     upvoted = 0
-    upvote_buttons = await page.query_selector_all(
-        'button[aria-label="upvote"], '
-        'shreddit-post button[upvote], '
-        'button[data-click-id="upvote"]'
-    )
-
-    # Shuffle to not always upvote the top posts
-    indices = list(range(len(upvote_buttons)))
-    random.shuffle(indices)
-
-    for i in indices[:count]:
+    skipped_own = 0
+    for i in indices:
+        if upvoted >= count:
+            break
         try:
-            btn = upvote_buttons[i]
-            if await btn.is_visible():
-                # Scroll to the button first
+            post = posts[i]
+            author = (await post.get_attribute("author") or "").lower()
+            if my_username and author == my_username:
+                skipped_own += 1
+                log.info("Skipped upvoting our own post")
+                continue
+            btn = await post.query_selector(
+                'button[aria-label="upvote"], button[upvote], '
+                'button[data-click-id="upvote"]'
+            )
+            if btn and await btn.is_visible():
                 await btn.scroll_into_view_if_needed()
                 await asyncio.sleep(human_delay(500, 1500))
                 await btn.click()
@@ -64,7 +134,10 @@ async def upvote_posts(session, subreddit_name: str, count: int = 3) -> int:
             log.warning(f"Upvote failed: {e}")
             continue
 
-    log.info(f"Upvoted {upvoted} posts in r/{subreddit_name}")
+    log.info(
+        f"Upvoted {upvoted} posts in r/{subreddit_name}"
+        + (f" (skipped {skipped_own} own)" if skipped_own else "")
+    )
     return upvoted
 
 

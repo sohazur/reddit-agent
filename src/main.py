@@ -183,10 +183,22 @@ async def run_cycle(config: Config) -> dict:
                     continue
 
         # Engagement: upvote, browse, reply to replies
-        from src.browser.engage import upvote_posts, reply_to_replies, browse_subreddit
+        from src.browser.engage import (
+            upvote_posts, reply_to_replies, browse_subreddit, join_subreddit,
+        )
 
         if config.dry_run:
-            log.info("[DRY RUN] Skipping mutating engagement (upvote, reply, DM). Browse still runs.")
+            log.info("[DRY RUN] Skipping mutating engagement (join, upvote, reply, DM). Browse still runs.")
+
+        # Warming: make sure we're a member of the target subs we're active in.
+        if config.engage_join and not config.dry_run:
+            log.info("Joining target subreddits (warming)")
+            for sub in config.subreddits[:5]:
+                if sub.min_karma <= account_karma:
+                    try:
+                        await join_subreddit(session, sub.name)
+                    except Exception as e:
+                        log.warning(f"Join failed in r/{sub.name}: {e}")
 
         if config.engage_upvote and not config.dry_run:
             log.info("Upvoting posts for natural activity")
