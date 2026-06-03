@@ -34,11 +34,18 @@ TIMEZONES = [
 ]
 
 
-def get_stealth_launch_args() -> dict:
-    """Get Playwright launch arguments that minimize detection."""
+def get_stealth_launch_args(channel: str | None = None) -> dict:
+    """Get Playwright launch arguments that minimize detection.
+
+    Reddit hard-blocks Playwright's BUNDLED Chromium fingerprint with a
+    "network policy" 403 even from a clean residential IP. Launching the
+    system-installed Google Chrome (channel="chrome") presents a genuine
+    fingerprint that passes the gate. When a channel is given we pass it
+    through; otherwise we fall back to bundled Chromium.
+    """
     viewport = random.choice(VIEWPORTS)
 
-    return {
+    args: dict = {
         "headless": True,
         "args": [
             "--disable-blink-features=AutomationControlled",
@@ -49,16 +56,24 @@ def get_stealth_launch_args() -> dict:
             f"--window-size={viewport['width']},{viewport['height']}",
         ],
     }
+    if channel:
+        args["channel"] = channel
+    return args
 
 
-def get_stealth_context_options() -> dict:
-    """Get browser context options for stealth."""
+def get_stealth_context_options(spoof_user_agent: bool = True) -> dict:
+    """Get browser context options for stealth.
+
+    When running on the real Chrome channel, set spoof_user_agent=False: an
+    overridden UA string that disagrees with Chrome's automatically-sent
+    Sec-CH-UA client hints is itself a strong bot signal (the inconsistency
+    triggered Reddit's block in testing). Letting real Chrome present its own
+    native, self-consistent UA passes the gate.
+    """
     viewport = random.choice(VIEWPORTS)
-    user_agent = random.choice(USER_AGENTS)
     timezone = random.choice(TIMEZONES)
 
-    return {
-        "user_agent": user_agent,
+    options: dict = {
         "viewport": viewport,
         "locale": "en-US",
         "timezone_id": timezone,
@@ -67,6 +82,9 @@ def get_stealth_context_options() -> dict:
         "color_scheme": "light",
         "java_script_enabled": True,
     }
+    if spoof_user_agent:
+        options["user_agent"] = random.choice(USER_AGENTS)
+    return options
 
 
 async def apply_stealth_scripts(page) -> None:

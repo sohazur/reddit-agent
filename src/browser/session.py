@@ -75,16 +75,39 @@ class RedditSession:
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
         self._page: Page | None = None
+        # True when launched on the system Google Chrome channel; drives whether
+        # contexts spoof the UA (real Chrome must not — see start()).
+        self._on_real_chrome: bool = False
 
     async def start(self) -> "RedditSession":
         """Launch browser and establish Reddit session."""
         log.info("Starting browser session")
         self._playwright = await async_playwright().start()
 
-        launch_args = get_stealth_launch_args()
-        self._browser = await self._playwright.chromium.launch(**launch_args)
+        # Prefer the system Google Chrome ("chrome" channel): Reddit blocks
+        # Playwright's bundled Chromium fingerprint with a "network policy" 403
+        # even on a clean IP. Fall back to bundled Chromium if Chrome isn't
+        # installed. On the real channel, skip the UA override (a spoofed UA
+        # that disagrees with Chrome's Sec-CH-UA client hints is a bot tell).
+        try:
+            self._browser = await self._playwright.chromium.launch(
+                **get_stealth_launch_args(channel="chrome")
+            )
+            self._on_real_chrome = True
+            log.info("Launched system Google Chrome (channel=chrome)")
+        except Exception as e:
+            log.warning(
+                f"Chrome channel unavailable ({e}); falling back to bundled "
+                f"Chromium (Reddit may block it)"
+            )
+            self._on_real_chrome = False
+            self._browser = await self._playwright.chromium.launch(
+                **get_stealth_launch_args()
+            )
 
-        context_options = get_stealth_context_options()
+        context_options = get_stealth_context_options(
+            spoof_user_agent=not self._on_real_chrome
+        )
 
         # Load saved cookies if available
         if COOKIES_PATH.exists():
@@ -281,7 +304,7 @@ class RedditSession:
         Used for shadowban checking — view comments as a logged-out user.
         """
         context = await self._browser.new_context(
-            **get_stealth_context_options()
+            **get_stealth_context_options(spoof_user_agent=not self._on_real_chrome)
         )
         page = await context.new_page()
         await apply_stealth_scripts(page)
