@@ -361,13 +361,39 @@ async def post_comment(
     except Exception:
         pass
 
-    # Step 2: Scroll the comment area into view (modern Reddit lazy-loads it).
-    await page.evaluate("window.scrollTo(0, 400)")
-    await asyncio.sleep(human_delay(800, 1500))
+    # Step 2: The composer sits at the TOP of the comment section, right under
+    # the post — NOT down in the comment list. Earlier code scrolled down past
+    # it (confirmed via error screenshots). Scroll the composer/post area into
+    # view explicitly instead.
+    async def _scroll_to_composer_area() -> None:
+        await page.evaluate("""
+            () => {
+                // Prefer the composer element itself, else the trigger, else the
+                // post header (composer is just below it).
+                const sel = [
+                    'shreddit-composer', 'comment-composer-host',
+                    'shreddit-comment-composer', 'faceplate-form',
+                ];
+                for (const s of sel) {
+                    const el = document.querySelector(s);
+                    if (el) { el.scrollIntoView({block: 'center'}); return; }
+                }
+                // Trigger by text
+                const cands = Array.from(document.querySelectorAll('button, [role="button"], [placeholder]'));
+                const trig = cands.find(e => /add a comment|join the conversation|write a comment/i.test(
+                    (e.innerText||'') + ' ' + (e.getAttribute('aria-label')||'') + ' ' + (e.getAttribute('placeholder')||'')
+                ));
+                if (trig) { trig.scrollIntoView({block: 'center'}); return; }
+                // Fallback: top of the post so the composer below it loads.
+                const post = document.querySelector('shreddit-post');
+                if (post) post.scrollIntoView({block: 'start'});
+            }
+        """)
+        await asyncio.sleep(human_delay(800, 1500))
 
-    # Step 3: Activate the composer. Modern Reddit shows an "Add a comment" /
-    # "Join the conversation" trigger that must be clicked to reveal the editor.
-    # Try the trigger by accessible name first, then the legacy host element.
+    await _scroll_to_composer_area()
+
+    # Step 3: Activate the composer by clicking its trigger (now in view).
     async def _try_open_composer() -> None:
         opened = await page.evaluate("""
             () => {
@@ -393,7 +419,7 @@ async def post_comment(
             await asyncio.sleep(human_delay(1000, 2000))
         try:
             host = await page.query_selector(
-                "comment-composer-host, shreddit-comment-composer"
+                "shreddit-composer, comment-composer-host, shreddit-comment-composer"
             )
             if host:
                 await host.scroll_into_view_if_needed()
@@ -425,8 +451,9 @@ async def post_comment(
 
     comment_box = await _find_box()
     if not comment_box:
-        await page.evaluate("window.scrollTo(0, 600)")
-        await asyncio.sleep(human_delay(800, 1500))
+        # Retry: re-scroll to the composer area (NOT further down the comments)
+        # and re-open. This is the fix for the ~90% miss rate seen live.
+        await _scroll_to_composer_area()
         await _try_open_composer()
         comment_box = await _find_box()
 
