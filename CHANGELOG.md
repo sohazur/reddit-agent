@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.10.1] - 2026-06-02
+
+### Fixed
+- Shadowban detector no longer false-flags visible comments. It was scrolling too little on large threads, matching text too literally (curly quotes/emoji broke the match), and calling any miss a shadowban — which flagged every comment and paused the agent. It now normalizes text, matches a distinctive word slice, scrolls until found, and assumes visible when unsure. The circuit breaker now requires 2+ invisible comments before pausing, so one flaky check can't stop everything.
+
 ## [0.10.0] - 2026-06-02
 
 ### Added
