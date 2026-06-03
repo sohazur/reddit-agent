@@ -361,37 +361,74 @@ async def post_comment(
     except Exception:
         pass
 
-    # Step 2: Scroll to bring composer into viewport
-    await page.evaluate("window.scrollTo(0, 300)")
-    await asyncio.sleep(human_delay(500, 1000))
+    # Step 2: Scroll the comment area into view (modern Reddit lazy-loads it).
+    await page.evaluate("window.scrollTo(0, 400)")
+    await asyncio.sleep(human_delay(800, 1500))
 
-    # Step 3: Click composer-host to activate/expand
-    try:
-        host = await page.query_selector("comment-composer-host")
-        if host:
-            bbox = await host.bounding_box()
-            if bbox:
-                await page.mouse.click(
-                    bbox["x"] + bbox["width"] / 2,
-                    bbox["y"] + bbox["height"] / 2,
-                )
-                log.info("Clicked composer host to activate")
-                await asyncio.sleep(human_delay(1000, 2000))
-    except Exception:
-        pass
+    # Step 3: Activate the composer. Modern Reddit shows an "Add a comment" /
+    # "Join the conversation" trigger that must be clicked to reveal the editor.
+    # Try the trigger by accessible name first, then the legacy host element.
+    async def _try_open_composer() -> None:
+        opened = await page.evaluate("""
+            () => {
+                const wants = ['add a comment', 'join the conversation', 'write a comment', 'add comment'];
+                const cands = Array.from(document.querySelectorAll(
+                    'button, [role="button"], a, [aria-label], [placeholder]'
+                ));
+                for (const el of cands) {
+                    const t = ((el.innerText || '') + ' ' +
+                               (el.getAttribute('aria-label') || '') + ' ' +
+                               (el.getAttribute('placeholder') || '')).toLowerCase();
+                    if (wants.some(w => t.includes(w))) {
+                        el.scrollIntoView({block: 'center'});
+                        el.click();
+                        return true;
+                    }
+                }
+                return false;
+            }
+        """)
+        if opened:
+            log.info("Clicked 'add a comment' trigger to open composer")
+            await asyncio.sleep(human_delay(1000, 2000))
+        try:
+            host = await page.query_selector(
+                "comment-composer-host, shreddit-comment-composer"
+            )
+            if host:
+                await host.scroll_into_view_if_needed()
+                bbox = await host.bounding_box()
+                if bbox:
+                    await page.mouse.click(bbox["x"] + bbox["width"] / 2,
+                                           bbox["y"] + bbox["height"] / 2)
+                    await asyncio.sleep(human_delay(800, 1500))
+        except Exception:
+            pass
 
-    # Step 4: Find and click the contenteditable comment box
-    comment_box = None
-    for selector in [
-        'div[contenteditable="true"]',
-        'shreddit-composer div[contenteditable="true"]',
-        "textarea",
-    ]:
-        el = await page.query_selector(selector)
-        if el and await el.is_visible():
-            comment_box = el
-            log.info(f"Found visible comment box: {selector}")
-            break
+    await _try_open_composer()
+
+    # Step 4: Find the contenteditable / textarea editor. Retry once after
+    # re-opening the composer if it isn't visible yet.
+    async def _find_box():
+        for selector in [
+            'shreddit-composer div[contenteditable="true"]',
+            'faceplate-form div[contenteditable="true"]',
+            'div[contenteditable="true"]',
+            'textarea[name="comment"]',
+            "textarea",
+        ]:
+            el = await page.query_selector(selector)
+            if el and await el.is_visible():
+                log.info(f"Found visible comment box: {selector}")
+                return el
+        return None
+
+    comment_box = await _find_box()
+    if not comment_box:
+        await page.evaluate("window.scrollTo(0, 600)")
+        await asyncio.sleep(human_delay(800, 1500))
+        await _try_open_composer()
+        comment_box = await _find_box()
 
     if not comment_box:
         log.error("Could not find visible comment box")
@@ -407,25 +444,53 @@ async def post_comment(
 
     await asyncio.sleep(human_delay(1000, 2000))
 
-    # Step 6: Find and click the "Comment" submit button
-    submit_btn = None
-    btns = await page.query_selector_all("button")
-    for btn in btns:
-        try:
-            txt = (await btn.inner_text()).strip()
-            if txt == "Comment" and await btn.is_visible():
-                submit_btn = btn
-                break
-        except Exception:
-            continue
+    # Step 6: Submit. Prefer Ctrl/Cmd+Enter (works in Reddit's editor and is
+    # layout-independent), then fall back to clicking a Comment/Reply/Post button.
+    submitted = False
+    try:
+        import sys as _sys
+        await page.keyboard.down("Meta" if _sys.platform == "darwin" else "Control")
+        await page.keyboard.press("Enter")
+        await page.keyboard.up("Meta" if _sys.platform == "darwin" else "Control")
+        await asyncio.sleep(human_delay(1500, 2500))
+        # Heuristic: if the editor is now empty, the submit went through.
+        still_has_text = await page.evaluate("""
+            () => {
+                const ed = document.querySelector('div[contenteditable="true"], textarea');
+                if (!ed) return false;
+                const v = (ed.innerText || ed.value || '').trim();
+                return v.length > 5;
+            }
+        """)
+        submitted = not still_has_text
+        if submitted:
+            log.info("Submitted comment via keyboard shortcut")
+    except Exception:
+        pass
 
-    if not submit_btn:
-        log.error("Could not find visible Comment button")
-        await _screenshot_error(page, "no_submit_button")
-        return {"success": False, "error": "submit_button_not_found"}
+    if not submitted:
+        submit_btn = None
+        btns = await page.query_selector_all('button, [role="button"]')
+        for btn in btns:
+            try:
+                txt = (await btn.inner_text()).strip().lower()
+                aria = (await btn.get_attribute("aria-label") or "").lower()
+                label = f"{txt} {aria}"
+                if (("comment" in label or "reply" in label or "post" in label)
+                        and "add a comment" not in label
+                        and await btn.is_visible()):
+                    submit_btn = btn
+                    break
+            except Exception:
+                continue
 
-    log.info("Clicking Comment button")
-    await submit_btn.click()
+        if not submit_btn:
+            log.error("Could not find visible Comment button")
+            await _screenshot_error(page, "no_submit_button")
+            return {"success": False, "error": "submit_button_not_found"}
+
+        log.info("Clicking Comment submit button")
+        await submit_btn.click()
 
     # Wait for the comment to appear
     await asyncio.sleep(human_delay(3000, 5000))
