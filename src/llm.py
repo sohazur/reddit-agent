@@ -26,6 +26,10 @@ def _detect_provider() -> tuple[str, str]:
 
     Returns (provider, api_key) tuple.
     """
+    # Explicit opt-in to agent-provided handoff (run inside Cursor/OpenClaw).
+    if os.environ.get("LLM_MODE", "").lower() == "agent-provided":
+        return "agent", ""
+
     # Check environment
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if anthropic_key and anthropic_key != "agent-provided":
@@ -70,9 +74,11 @@ def _detect_provider() -> tuple[str, str]:
         except Exception:
             pass
 
-    raise RuntimeError(
-        "No LLM API key found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY in the environment."
-    )
+    # No direct key. Fall back to agent-provided mode: the host agent
+    # (Cursor / Claude / OpenClaw) runs its OWN LLM via a file handoff, so the
+    # tool needs no key of its own.
+    log.info("No direct LLM key — using agent-provided handoff mode")
+    return "agent", ""
 
 
 def get_provider() -> str:
@@ -107,8 +113,55 @@ def call_llm(
         return _call_anthropic(prompt, api_key, max_tokens, model, images)
     elif provider == "openai":
         return _call_openai(prompt, api_key, max_tokens, model, images)
+    elif provider == "agent":
+        return _call_agent(prompt, max_tokens, images)
     else:
         raise RuntimeError(f"Unknown provider: {provider}")
+
+
+def _call_agent(prompt: str, max_tokens: int, images: list[dict] | None) -> str:
+    """Agent-provided handoff: let the HOST agent's LLM answer via files.
+
+    The tool writes the prompt to data/.llm-request.json and polls for the host
+    agent to write data/.llm-response.json. This is how the agent runs inside
+    Cursor/OpenClaw with NO API key of its own — see AGENT_LOOP.md for the host
+    side. Times out (returns "") so a stuck host never hangs the cycle forever.
+    """
+    import time
+    from src.config import DATA_DIR
+
+    req_path = DATA_DIR / ".llm-request.json"
+    resp_path = DATA_DIR / ".llm-response.json"
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Clear any stale response, then write the request.
+    try:
+        resp_path.unlink()
+    except FileNotFoundError:
+        pass
+    req_path.write_text(json.dumps({
+        "prompt": prompt,
+        "max_tokens": max_tokens,
+        "has_images": bool(images),
+        "ts": time.time(),
+    }))
+    log.info("Agent-provided LLM: wrote request, waiting for host agent response")
+
+    # Poll for the host agent to answer (up to ~120s).
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        if resp_path.exists():
+            try:
+                data = json.loads(resp_path.read_text())
+                resp_path.unlink()
+                req_path.unlink()
+                return (data.get("response") or data.get("text") or "").strip()
+            except Exception:
+                pass
+        time.sleep(1)
+
+    log.error("Agent-provided LLM: timed out waiting for host response")
+    return ""
 
 
 def _resolve_anthropic_model() -> str:

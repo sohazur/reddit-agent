@@ -57,6 +57,26 @@ state.
 2. Run `reddit-agent` a few times. Read the `[DRY RUN] WOULD POST` lines.
 3. If the voice and targeting look right, set `DRY_RUN=false` and resume the loop.
 
+## Running it inside an agent with NO API key (agent-provided LLM)
+
+If you don't want the tool to have its own LLM key (you're running it inside
+Cursor/OpenClaw and want to use YOUR model), set `LLM_MODE=agent-provided` in
+`.env`. Then the tool hands every LLM call to YOU via two files:
+
+```
+1. tool writes data/.llm-request.json   {"prompt": "...", "max_tokens": N}
+2. YOU (the host agent): read it, run YOUR llm on the prompt,
+   write data/.llm-response.json        {"response": "<your model's answer>"}
+3. tool reads the response and continues
+```
+
+So your loop, when `LLM_MODE=agent-provided`, also watches for `.llm-request.json`
+while a cycle runs: whenever it appears, answer it with your own model and write
+`.llm-response.json`. The tool polls ~120s per call then gives up gracefully.
+
+If a real `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` is set, the tool uses it directly
+and you don't need to do any of this.
+
 ## Commands you have
 
 | Command | What it does | Mutates? |
