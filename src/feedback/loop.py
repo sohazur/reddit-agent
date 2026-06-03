@@ -136,19 +136,80 @@ async def _check_shadowban(
     thread_url: str,
     comment_text: str,
 ) -> bool:
-    """Check if a comment is invisible to logged-out users (shadowban indicator)."""
+    """Check if a comment is invisible to logged-out users (shadowban indicator).
+
+    Two-stage to avoid false positives on large threads (where a new low-karma
+    comment is sorted to the bottom / collapsed and a text scan misses it even
+    though it's perfectly public):
+
+    1. In-thread incognito text match (fast, but fragile on big threads).
+    2. If that misses, the AUTHORITATIVE check: the account's PUBLIC profile
+       comments page viewed logged-out. A genuinely shadowbanned account shows
+       ZERO comments there. If the profile shows comments (this one or others),
+       it is NOT shadowbanned — the thread scan just missed it.
+    """
     try:
         incognito_page = await session.new_incognito_page()
-        visible = await check_comment_visible(
-            incognito_page, thread_url, comment_text
-        )
-        await incognito_page.context.close()
+        try:
+            visible = await check_comment_visible(
+                incognito_page, thread_url, comment_text
+            )
+            if visible:
+                return False  # found in-thread → definitely fine
 
-        if not visible:
-            log.warning("Comment not visible in incognito — possible shadowban")
+            # Thread scan missed it — verify against the public profile before
+            # crying shadowban. This is what prevents the big-thread false flag.
+            profile_ok = await _profile_shows_comments(incognito_page, session)
+            if profile_ok:
+                log.info(
+                    "Comment not found in-thread, but profile shows public "
+                    "comments → NOT shadowbanned (likely buried in a big thread)"
+                )
+                return False
+
+            log.warning(
+                "Comment invisible in-thread AND profile shows no public "
+                "comments — likely shadowban"
+            )
             return True
-        return False
+        finally:
+            await incognito_page.context.close()
 
     except Exception as e:
         log.error(f"Shadowban check error: {e}")
-        return False  # Assume not shadowbanned on error
+        return False  # Fail open — never false-accuse on error
+
+
+async def _profile_shows_comments(incognito_page, session) -> bool:
+    """Does the account's PUBLIC (logged-out) profile show any comments?
+
+    Authoritative shadowban signal: a shadowbanned account's comments are
+    invisible to logged-out users everywhere, including its profile. Returns
+    True if the logged-out profile renders one or more comments.
+    """
+    try:
+        username = (session.config.reddit_account.username or "").strip()
+    except AttributeError:
+        username = ""
+    if not username:
+        return True  # can't check → don't accuse
+
+    await incognito_page.goto(
+        f"https://www.reddit.com/user/{username}/comments/",
+        wait_until="domcontentloaded",
+    )
+    await asyncio.sleep(4)
+    count = await incognito_page.evaluate("""
+        () => {
+            if (/blocked by network security|whoa there/i.test(document.body.innerText||''))
+                return -1;  // bot-blocked, inconclusive
+            return document.querySelectorAll(
+                'shreddit-profile-comment, shreddit-comment, [data-testid="comment"]'
+            ).length;
+        }
+    """)
+    if count == -1:
+        log.warning("Profile shadowban check inconclusive (bot-blocked) — fail open")
+        return True  # inconclusive → don't accuse
+    log.info(f"Public profile shows {count} comment(s) logged-out")
+    return count > 0
