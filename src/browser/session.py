@@ -7,7 +7,16 @@ import asyncio
 import json
 from pathlib import Path
 
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+# Prefer Patchright — an API-compatible, undetected patch of Playwright. Reddit
+# serves a "blocked by network security" page to vanilla Playwright once it does
+# automated navigation (CDP traces are detectable); Patchright defeats that.
+# Fall back to stock Playwright if Patchright isn't installed.
+try:
+    from patchright.async_api import async_playwright, Browser, BrowserContext, Page
+    _USING_PATCHRIGHT = True
+except ImportError:  # pragma: no cover
+    from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+    _USING_PATCHRIGHT = False
 
 from src.browser.stealth import (
     apply_stealth_scripts,
@@ -84,17 +93,21 @@ class RedditSession:
         log.info("Starting browser session")
         self._playwright = await async_playwright().start()
 
-        # Prefer the system Google Chrome ("chrome" channel): Reddit blocks
-        # Playwright's bundled Chromium fingerprint with a "network policy" 403
-        # even on a clean IP. Fall back to bundled Chromium if Chrome isn't
-        # installed. On the real channel, skip the UA override (a spoofed UA
-        # that disagrees with Chrome's Sec-CH-UA client hints is a bot tell).
+        # Launch recipe verified to pass Reddit's "network security" block:
+        # Patchright (undetected) + system Google Chrome, headful, and crucially
+        # NONE of the classic stealth tells — no --disable-blink-features args,
+        # no User-Agent override, no manual init scripts. Those are themselves
+        # detectable; Patchright + real Chrome present a consistent human
+        # fingerprint on their own. We fall back to stock-Playwright stealth
+        # args only if we're not on Patchright.
+        launch_kwargs: dict = {"channel": "chrome", "headless": False}
+        if not _USING_PATCHRIGHT:
+            launch_kwargs.update(get_stealth_launch_args(channel="chrome"))
         try:
-            self._browser = await self._playwright.chromium.launch(
-                **get_stealth_launch_args(channel="chrome")
-            )
+            self._browser = await self._playwright.chromium.launch(**launch_kwargs)
             self._on_real_chrome = True
-            log.info("Launched system Google Chrome (channel=chrome)")
+            engine = "Patchright" if _USING_PATCHRIGHT else "Playwright"
+            log.info(f"Launched system Google Chrome via {engine} (channel=chrome)")
         except Exception as e:
             log.warning(
                 f"Chrome channel unavailable ({e}); falling back to bundled "
@@ -105,9 +118,17 @@ class RedditSession:
                 **get_stealth_launch_args()
             )
 
-        context_options = get_stealth_context_options(
-            spoof_user_agent=not self._on_real_chrome
-        )
+        # On Patchright + real Chrome, keep the context minimal and native:
+        # spoofing UA / injecting scripts here would re-introduce the tells.
+        if _USING_PATCHRIGHT and self._on_real_chrome:
+            context_options = {
+                "viewport": {"width": 1440, "height": 900},
+                "locale": "en-US",
+            }
+        else:
+            context_options = get_stealth_context_options(
+                spoof_user_agent=not self._on_real_chrome
+            )
 
         # Load saved cookies if available
         if COOKIES_PATH.exists():
@@ -121,7 +142,10 @@ class RedditSession:
 
         self._context = await self._browser.new_context(**context_options)
         self._page = await self._context.new_page()
-        await apply_stealth_scripts(self._page)
+        # Only inject manual stealth scripts when NOT on Patchright (which does
+        # its own, more thorough patching — our scripts would be a tell).
+        if not _USING_PATCHRIGHT:
+            await apply_stealth_scripts(self._page)
 
         # Check if we're already logged in
         if await self._is_logged_in():
@@ -303,11 +327,17 @@ class RedditSession:
 
         Used for shadowban checking — view comments as a logged-out user.
         """
-        context = await self._browser.new_context(
-            **get_stealth_context_options(spoof_user_agent=not self._on_real_chrome)
-        )
+        if _USING_PATCHRIGHT and self._on_real_chrome:
+            context = await self._browser.new_context(
+                viewport={"width": 1440, "height": 900}, locale="en-US"
+            )
+        else:
+            context = await self._browser.new_context(
+                **get_stealth_context_options(spoof_user_agent=not self._on_real_chrome)
+            )
         page = await context.new_page()
-        await apply_stealth_scripts(page)
+        if not _USING_PATCHRIGHT:
+            await apply_stealth_scripts(page)
         return page
 
     async def is_healthy(self) -> bool:
