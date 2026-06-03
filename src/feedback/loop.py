@@ -105,21 +105,33 @@ async def _check_single_comment(
             break
 
     if not found:
-        # Comment not found in thread — might be removed or shadowbanned
-        # Do shadowban check
-        is_shadowbanned = await _check_shadowban(
+        # Not found in this thread's loaded comments. That does NOT mean removed
+        # — on a big thread a new low-karma comment is buried/collapsed. Resolve
+        # the true state via the authoritative signal (our public profile):
+        #   - profile shows our comments  -> "posted" (just buried here)
+        #   - profile shows NONE (and not bot-blocked) -> "shadowbanned"
+        #   - inconclusive (bot-blocked / can't tell) -> leave as "posted", never
+        #     fabricate a removal. We only mark "removed" when we can actually
+        #     confirm it (we currently can't distinguish buried-vs-removed in a
+        #     thread reliably), so default to the safe, truthful "posted".
+        verdict = await _check_shadowban(
             session, thread_url, comment["comment_text"]
         )
 
-        if is_shadowbanned:
-            status = "shadowbanned"
+        if verdict == "shadowbanned":
             log.warning(f"Comment {comment['id']} appears shadowbanned!")
-        else:
-            status = "removed"
-            log.info(f"Comment {comment['id']} was removed")
+            update_comment_feedback(comment["id"], 0, "shadowbanned", "not_visible")
+            return {"status": "shadowbanned", "new_karma": 0,
+                    "karma_delta": -comment["karma"]}
 
-        update_comment_feedback(comment["id"], 0, status, "not_visible")
-        return {"status": status, "new_karma": 0, "karma_delta": -comment["karma"]}
+        # Not shadowbanned — it's public (or we couldn't prove otherwise). Keep
+        # it as posted; don't invent a removal that pollutes the learning data.
+        log.info(
+            f"Comment {comment['id']} not in-thread but not shadowbanned "
+            f"(buried in a large thread) — keeping status 'posted'"
+        )
+        update_comment_feedback(comment["id"], comment["karma"], "posted")
+        return {"status": "posted", "new_karma": comment["karma"], "karma_delta": 0}
 
     # Comment still visible — update karma
     karma_delta = new_karma - comment["karma"]
@@ -135,8 +147,8 @@ async def _check_shadowban(
     session,  # RedditSession
     thread_url: str,
     comment_text: str,
-) -> bool:
-    """Check if a comment is invisible to logged-out users (shadowban indicator).
+) -> str:
+    """Classify a not-found-in-thread comment as "shadowbanned" or "visible".
 
     Two-stage to avoid false positives on large threads (where a new low-karma
     comment is sorted to the bottom / collapsed and a text scan misses it even
@@ -147,6 +159,10 @@ async def _check_shadowban(
        comments page viewed logged-out. A genuinely shadowbanned account shows
        ZERO comments there. If the profile shows comments (this one or others),
        it is NOT shadowbanned — the thread scan just missed it.
+
+    Returns "shadowbanned" only when the profile clearly shows no public
+    comments; otherwise "visible" (including inconclusive/bot-blocked — we never
+    accuse on uncertainty).
     """
     try:
         incognito_page = await session.new_incognito_page()
@@ -155,7 +171,7 @@ async def _check_shadowban(
                 incognito_page, thread_url, comment_text
             )
             if visible:
-                return False  # found in-thread → definitely fine
+                return "visible"  # found in-thread → definitely fine
 
             # Thread scan missed it — verify against the public profile before
             # crying shadowban. This is what prevents the big-thread false flag.
@@ -165,19 +181,19 @@ async def _check_shadowban(
                     "Comment not found in-thread, but profile shows public "
                     "comments → NOT shadowbanned (likely buried in a big thread)"
                 )
-                return False
+                return "visible"
 
             log.warning(
                 "Comment invisible in-thread AND profile shows no public "
                 "comments — likely shadowban"
             )
-            return True
+            return "shadowbanned"
         finally:
             await incognito_page.context.close()
 
     except Exception as e:
         log.error(f"Shadowban check error: {e}")
-        return False  # Fail open — never false-accuse on error
+        return "visible"  # Fail open — never false-accuse on error
 
 
 async def _profile_shows_comments(incognito_page, session) -> bool:
