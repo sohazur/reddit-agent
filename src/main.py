@@ -133,7 +133,11 @@ async def run_cycle(config: Config) -> dict:
         from src.intelligence.persona import ensure_persona
         ensure_persona(config)
 
-        for subreddit in config.subreddits:
+        # The per-subreddit scan/evaluate/comment loop only makes sense when
+        # commenting is enabled. In upvote/browse-only warm-up mode it would
+        # just waste navigation (and sleep on the comment cooldown for ~45 min),
+        # so skip straight to the safe engagement phase below.
+        for subreddit in config.subreddits if config.engage_comment else []:
             if not cadence.can_post_today():
                 log.info("Daily quota reached, stopping")
                 break
@@ -158,6 +162,18 @@ async def run_cycle(config: Config) -> dict:
                 continue
 
             log.info(f"Processing r/{subreddit.name}")
+
+            # Due diligence FIRST: are we banned or restricted here? A careful
+            # human checks before posting. If banned/restricted, skip commenting
+            # entirely (we still upvote/browse these subs later, which is safe).
+            from src.browser.engage import check_ban_status
+            ban = await check_ban_status(session, subreddit.name)
+            if not ban.get("can_comment", False):
+                log.info(
+                    f"r/{subreddit.name}: {ban.get('reason')} — skipping comment "
+                    f"engagement (upvote/browse only)"
+                )
+                continue
 
             # Generate/refresh subreddit intelligence
             await generate_intel_report(config, session, subreddit)
@@ -208,13 +224,22 @@ async def run_cycle(config: Config) -> dict:
                         log.warning(f"Join failed in r/{sub.name}: {e}")
 
         if config.engage_upvote and not config.dry_run:
-            log.info("Upvoting posts for natural activity")
-            for sub in config.subreddits[:3]:
-                if sub.min_karma <= account_karma:
-                    try:
-                        await upvote_posts(session, sub.name, count=2)
-                    except Exception as e:
-                        log.warning(f"Upvote failed in r/{sub.name}: {e}")
+            # Upvoting is the safe, high-volume warm-up activity (allowed even in
+            # subs we can't comment in). Spread it across several good-standing
+            # subs in random order, a randomized count each, with human-paced
+            # gaps between subs — not a robotic burst.
+            import random
+            from src.browser.stealth import human_delay
+            log.info("Upvoting posts across subs for natural warm-up activity")
+            upvote_subs = [s for s in config.subreddits if s.min_karma <= account_karma]
+            random.shuffle(upvote_subs)
+            for sub in upvote_subs[:5]:
+                try:
+                    await upvote_posts(session, sub.name, count=random.randint(2, 5))
+                except Exception as e:
+                    log.warning(f"Upvote failed in r/{sub.name}: {e}")
+                # Human pause before moving to the next subreddit.
+                await asyncio.sleep(human_delay(5000, 12000))
 
         if config.engage_reply and not config.dry_run:
             log.info("Checking for replies to our comments")

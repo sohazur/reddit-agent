@@ -7,7 +7,16 @@ import asyncio
 import json
 from pathlib import Path
 
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+# Prefer Patchright — an API-compatible, undetected patch of Playwright. Reddit
+# serves a "blocked by network security" page to vanilla Playwright once it does
+# automated navigation (CDP traces are detectable); Patchright defeats that.
+# Fall back to stock Playwright if Patchright isn't installed.
+try:
+    from patchright.async_api import async_playwright, Browser, BrowserContext, Page
+    _USING_PATCHRIGHT = True
+except ImportError:  # pragma: no cover
+    from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+    _USING_PATCHRIGHT = False
 
 from src.browser.stealth import (
     apply_stealth_scripts,
@@ -15,12 +24,55 @@ from src.browser.stealth import (
     get_stealth_launch_args,
     human_delay,
 )
-from src.config import Config, DATA_DIR, SCREENSHOTS_DIR
+from src.config import Config, DATA_DIR, SCREENSHOTS_DIR, prune_screenshots
 from src.log import get_logger
 
 log = get_logger("session")
 
 COOKIES_PATH = DATA_DIR / "cookies.json"
+
+# Map browser-extension sameSite values (Cookie-Editor, Chrome export) to the
+# three Playwright accepts. Playwright rejects anything else with a hard error.
+_SAMESITE_MAP = {
+    "no_restriction": "None",
+    "unspecified": "Lax",
+    "lax": "Lax",
+    "strict": "Strict",
+    "none": "None",
+    "": "Lax",
+}
+# Keys Playwright's storage_state cookie schema understands. Extension exports
+# carry extras (hostOnly, storeId, session, sameParty…) that must be dropped.
+_PW_COOKIE_KEYS = {
+    "name", "value", "domain", "path",
+    "expires", "httpOnly", "secure", "sameSite",
+}
+
+
+def _normalize_cookies(raw: list[dict]) -> list[dict]:
+    """Convert Cookie-Editor / browser-export cookies to Playwright's schema.
+
+    Handles the two incompatibilities that crash new_context():
+    - sameSite: extensions use no_restriction/unspecified/lax/strict; Playwright
+      only accepts Strict|Lax|None.
+    - expirationDate (float seconds) -> expires; and unknown keys are stripped.
+    Session cookies (no expiry) are kept without an `expires` field.
+    """
+    out = []
+    for c in raw:
+        if not c.get("name") or "domain" not in c:
+            continue
+        cookie = {k: c[k] for k in _PW_COOKIE_KEYS if k in c}
+        cookie["sameSite"] = _SAMESITE_MAP.get(
+            str(c.get("sameSite", "")).lower(), "Lax"
+        )
+        # Extension exports use `expirationDate`; Playwright wants `expires`.
+        if "expires" not in cookie and c.get("expirationDate") is not None:
+            cookie["expires"] = float(c["expirationDate"])
+        out.append(cookie)
+    if not out:
+        raise ValueError("no usable cookies after normalization")
+    return out
 
 
 class RedditSession:
@@ -32,29 +84,68 @@ class RedditSession:
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
         self._page: Page | None = None
+        # True when launched on the system Google Chrome channel; drives whether
+        # contexts spoof the UA (real Chrome must not — see start()).
+        self._on_real_chrome: bool = False
 
     async def start(self) -> "RedditSession":
         """Launch browser and establish Reddit session."""
         log.info("Starting browser session")
         self._playwright = await async_playwright().start()
 
-        launch_args = get_stealth_launch_args()
-        self._browser = await self._playwright.chromium.launch(**launch_args)
+        # Launch recipe verified to pass Reddit's "network security" block:
+        # Patchright (undetected) + system Google Chrome, headful, and crucially
+        # NONE of the classic stealth tells — no --disable-blink-features args,
+        # no User-Agent override, no manual init scripts. Those are themselves
+        # detectable; Patchright + real Chrome present a consistent human
+        # fingerprint on their own. We fall back to stock-Playwright stealth
+        # args only if we're not on Patchright.
+        launch_kwargs: dict = {"channel": "chrome", "headless": False}
+        if not _USING_PATCHRIGHT:
+            launch_kwargs.update(get_stealth_launch_args(channel="chrome"))
+        try:
+            self._browser = await self._playwright.chromium.launch(**launch_kwargs)
+            self._on_real_chrome = True
+            engine = "Patchright" if _USING_PATCHRIGHT else "Playwright"
+            log.info(f"Launched system Google Chrome via {engine} (channel=chrome)")
+        except Exception as e:
+            log.warning(
+                f"Chrome channel unavailable ({e}); falling back to bundled "
+                f"Chromium (Reddit may block it)"
+            )
+            self._on_real_chrome = False
+            self._browser = await self._playwright.chromium.launch(
+                **get_stealth_launch_args()
+            )
 
-        context_options = get_stealth_context_options()
+        # On Patchright + real Chrome, keep the context minimal and native:
+        # spoofing UA / injecting scripts here would re-introduce the tells.
+        if _USING_PATCHRIGHT and self._on_real_chrome:
+            context_options = {
+                "viewport": {"width": 1440, "height": 900},
+                "locale": "en-US",
+            }
+        else:
+            context_options = get_stealth_context_options(
+                spoof_user_agent=not self._on_real_chrome
+            )
 
         # Load saved cookies if available
         if COOKIES_PATH.exists():
             try:
-                cookies = json.loads(COOKIES_PATH.read_text())
+                raw_cookies = json.loads(COOKIES_PATH.read_text())
+                cookies = _normalize_cookies(raw_cookies)
                 context_options["storage_state"] = {"cookies": cookies, "origins": []}
-                log.info("Loaded saved cookies")
-            except (json.JSONDecodeError, KeyError):
-                log.warning("Failed to load cookies, starting fresh")
+                log.info(f"Loaded {len(cookies)} saved cookies")
+            except (json.JSONDecodeError, KeyError, ValueError) as e:
+                log.warning(f"Failed to load cookies, starting fresh: {e}")
 
         self._context = await self._browser.new_context(**context_options)
         self._page = await self._context.new_page()
-        await apply_stealth_scripts(self._page)
+        # Only inject manual stealth scripts when NOT on Patchright (which does
+        # its own, more thorough patching — our scripts would be a tell).
+        if not _USING_PATCHRIGHT:
+            await apply_stealth_scripts(self._page)
 
         # Check if we're already logged in
         if await self._is_logged_in():
@@ -213,6 +304,8 @@ class RedditSession:
         path = SCREENSHOTS_DIR / f"{name}_{timestamp}.png"
         await self._page.screenshot(path=str(path))
         log.info(f"Screenshot saved: {path}")
+        # Keep the screenshot dir bounded so a long unattended run can't fill disk.
+        prune_screenshots()
         return path
 
     @property
@@ -234,11 +327,17 @@ class RedditSession:
 
         Used for shadowban checking — view comments as a logged-out user.
         """
-        context = await self._browser.new_context(
-            **get_stealth_context_options()
-        )
+        if _USING_PATCHRIGHT and self._on_real_chrome:
+            context = await self._browser.new_context(
+                viewport={"width": 1440, "height": 900}, locale="en-US"
+            )
+        else:
+            context = await self._browser.new_context(
+                **get_stealth_context_options(spoof_user_agent=not self._on_real_chrome)
+            )
         page = await context.new_page()
-        await apply_stealth_scripts(page)
+        if not _USING_PATCHRIGHT:
+            await apply_stealth_scripts(page)
         return page
 
     async def is_healthy(self) -> bool:
