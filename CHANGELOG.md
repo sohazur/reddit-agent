@@ -3,6 +3,13 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.9.1] - 2026-06-02
+
+### Fixed
+- Read karma and account age from the current Reddit profile layout. Accounts were being read as 0 karma / unknown age (so karma- and age-gated subreddits were wrongly skipped); the agent now uses the configured username for the profile lookup and parses the modern "5 / Karma" and "3 m / Reddit Age" layout.
+- The circuit breaker no longer pauses everything when a strict subreddit's fuzzy judge rejects many comments on fit (e.g. r/explainlikeimfive). Only hard-rule blocks (links, karma, age, banned phrases) count toward the auto-pause; shadowban and removal-rate triggers are unchanged.
+- A banned link that can't be cleanly stripped now blocks the comment (so a fresh one is generated) instead of posting a grammatically broken fragment.
+
 ## [0.9.0] - 2026-06-02
 
 ### Added
