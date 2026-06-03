@@ -150,6 +150,13 @@ async def run_cycle(config: Config) -> dict:
                 )
                 continue
 
+            # Skip subreddits on cooldown after a recent removal — back off and
+            # let the heat die down instead of posting into the same filter.
+            from src.safety.cooldown import is_on_cooldown
+            if is_on_cooldown(subreddit.name):
+                log.info(f"r/{subreddit.name} on cooldown after a removal, skipping")
+                continue
+
             log.info(f"Processing r/{subreddit.name}")
 
             # Generate/refresh subreddit intelligence

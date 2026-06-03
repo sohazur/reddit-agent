@@ -114,6 +114,25 @@ def _get_recently_removed() -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def record_removal_reason(subreddit: str, reason: str) -> None:
+    """Record the specific reason a post/comment was removed in a subreddit.
+
+    Captured from a mod/Reddit removal DM. Written to learnings so future
+    generation in that sub sees exactly what got removed and why — not a generic
+    'avoid similar framing' but the real rule that was tripped.
+    """
+    from datetime import datetime
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    entry = (
+        f"## {today} — r/{subreddit} (REMOVAL REASON)\n"
+        f"- A post/comment here was removed. Reason given: \"{reason}\"\n"
+        f"- Lesson: do NOT post content that triggers this rule in r/{subreddit}. "
+        f"Adjust framing/topic to comply before posting here again.\n"
+    )
+    _append_learnings([entry])
+    log.info(f"Recorded removal reason for r/{subreddit}")
+
+
 def _append_learnings(entries: list[str]) -> None:
     """Append learning entries to the learnings file."""
     LEARNINGS_PATH.parent.mkdir(parents=True, exist_ok=True)

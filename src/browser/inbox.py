@@ -180,6 +180,16 @@ def apply_inbox_actions(messages: list[InboxMessage], config) -> list[str]:
             actions.append(
                 f"Post removed in r/{msg.subreddit}: {msg.body[:100]}"
             )
+            # Start a cooldown with the REAL reason from the mod/Reddit DM, and
+            # record it as a learning so generation avoids the same mistake.
+            from src.safety.cooldown import start_cooldown
+            reason = msg.body.strip()[:200] or "removed (no reason given)"
+            start_cooldown(msg.subreddit, reason)
+            try:
+                from src.feedback.learning import record_removal_reason
+                record_removal_reason(msg.subreddit, reason)
+            except Exception:
+                pass
 
     # Disable banned subreddits in the config
     if banned_subs and subreddits_path.exists():

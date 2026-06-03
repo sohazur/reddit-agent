@@ -44,6 +44,11 @@ async def run_feedback_loop(
 
             if result["status"] == "removed":
                 results["removed"] += 1
+                # Back off that sub: start a cooldown with the captured reason so
+                # we don't keep posting into the same filter/mod removal.
+                from src.safety.cooldown import start_cooldown
+                reason = result.get("removal_reason") or "comment removed (reason unknown)"
+                start_cooldown(comment["subreddit"], reason)
             elif result["status"] == "shadowbanned":
                 results["shadowbanned"] += 1
 
