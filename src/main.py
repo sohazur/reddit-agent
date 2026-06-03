@@ -353,6 +353,17 @@ async def _process_thread(
     tier = tier_decision.tier
     log.info(f"Content tier {tier} (desired {desired}): {tier_decision.reason}")
 
+    # Account-warming phase caps the tier by karma: a low-karma account never
+    # posts promo (Phase 1). This is what would have stopped the filtered
+    # Dubai-agencies post on a 5-karma account.
+    from src.safety.phases import phase_for_karma, cap_tier_to_phase
+    from src.browser.karma import get_account_karma
+    _karma = await get_account_karma(session)
+    _policy = phase_for_karma(
+        _karma, config.phase2_min_karma, config.phase3_min_karma
+    )
+    tier = cap_tier_to_phase(tier, _policy)
+
     # Generate comment (karma-mode = genuine, no brand agenda)
     comment_text = await generate_comment(
         config=config,

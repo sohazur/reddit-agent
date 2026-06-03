@@ -59,6 +59,10 @@ class Config:
     domain: str = ""
     # Rolling window size for tier-ratio enforcement.
     tier_window: int = 20
+    # Account-warming phase thresholds (karma). Phase 1 < phase2_min (comments
+    # only, no posts/promo); Phase 2 < phase3_min (soft posts); Phase 3 = full.
+    phase2_min_karma: int = 50
+    phase3_min_karma: int = 200
 
     # Engagement modes
     engage_comment: bool = True
@@ -154,6 +158,8 @@ def load_config() -> Config:
         objective=os.environ.get("REDDIT_AGENT_OBJECTIVE", ""),
         domain=os.environ.get("REDDIT_AGENT_DOMAIN", ""),
         tier_window=int(os.environ.get("TIER_WINDOW", "20")),
+        phase2_min_karma=int(os.environ.get("PHASE2_MIN_KARMA", "50")),
+        phase3_min_karma=int(os.environ.get("PHASE3_MIN_KARMA", "200")),
         engage_comment=os.environ.get("ENGAGE_COMMENT", "true").lower() == "true",
         engage_upvote=os.environ.get("ENGAGE_UPVOTE", "true").lower() == "true",
         engage_reply=os.environ.get("ENGAGE_REPLY", "true").lower() == "true",
