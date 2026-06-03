@@ -15,6 +15,102 @@ from src.log import get_logger
 log = get_logger("engage")
 
 
+async def check_ban_status(session, subreddit_name: str) -> dict:
+    """Due diligence before acting in a subreddit: am I banned or restricted?
+
+    Visits the subreddit and reads the on-page signals a careful human would:
+      - "You're banned from this community" banner  -> banned
+      - "you can't comment/post" / quarantine / private gates -> restricted
+    Returns a decision dict:
+      {"banned": bool, "restricted": bool, "can_comment": bool, "reason": str}
+    Fails OPEN-CAUTIOUS: on any error we report not-banned but can_comment=False
+    so the caller defaults to the safe path (upvote/browse only), never blind
+    commenting.
+    """
+    page = session.page
+    try:
+        # The "banned from this community" banner appears on a THREAD/comment
+        # page (next to the composer), NOT on the subreddit landing page. So we
+        # open the hot feed, grab the first thread, and check there — that's
+        # where a human would see the banner when trying to comment.
+        await page.goto(
+            f"https://www.reddit.com/r/{subreddit_name}/hot/",
+            wait_until="domcontentloaded",
+        )
+        await asyncio.sleep(human_delay(2500, 4500))
+
+        # Private/quarantine gates DO show on the landing/feed page.
+        feed_signals = await page.evaluate("""
+            () => {
+                const text = (document.body.innerText || '').toLowerCase();
+                return {
+                    quarantined: /quarantined community/.test(text),
+                    private: /this community is private|is set to private/.test(text),
+                    secblock: /blocked by network security/.test(text),
+                    permalink: (document.querySelector('shreddit-post') || {}).getAttribute
+                        ? document.querySelector('shreddit-post').getAttribute('permalink') : null,
+                };
+            }
+        """)
+
+        if feed_signals.get("secblock"):
+            log.warning(f"r/{subreddit_name}: hit network-security block during ban check")
+            return {"banned": False, "restricted": True, "can_comment": False,
+                    "reason": "network_security_block"}
+
+        # Navigate into the first thread to read the ban/can't-comment banner.
+        permalink = feed_signals.get("permalink")
+        if permalink:
+            url = permalink if permalink.startswith("http") else "https://www.reddit.com" + permalink
+            await page.goto(url, wait_until="domcontentloaded")
+            await asyncio.sleep(human_delay(2500, 4500))
+            await page.evaluate("window.scrollBy(0, 600)")
+            await asyncio.sleep(human_delay(1000, 2000))
+
+        signals = await page.evaluate("""
+            () => {
+                const text = (document.body.innerText || '').toLowerCase();
+                return {
+                    banned: /banned from this community|you are banned|you're banned/.test(text),
+                    cantComment: /can't comment on posts|cannot comment|posting is restricted|not allowed to post/.test(text),
+                    quarantined: %s,
+                    private: %s,
+                    secblock: /blocked by network security/.test(text),
+                };
+            }
+        """ % (str(bool(feed_signals.get("quarantined"))).lower(),
+               str(bool(feed_signals.get("private"))).lower()))
+
+        if signals.get("secblock"):
+            # Not a ban — a bot-detection block. Report as "unknown, be safe".
+            log.warning(f"r/{subreddit_name}: hit network-security block during ban check")
+            return {"banned": False, "restricted": True, "can_comment": False,
+                    "reason": "network_security_block"}
+
+        banned = bool(signals.get("banned"))
+        restricted = bool(signals.get("cantComment") or signals.get("quarantined")
+                          or signals.get("private"))
+        can_comment = not banned and not restricted
+
+        if banned:
+            log.warning(f"r/{subreddit_name}: ACCOUNT IS BANNED — skip (upvote/browse only elsewhere)")
+            reason = "banned"
+        elif restricted:
+            log.info(f"r/{subreddit_name}: restricted (can't comment) — upvote/browse only")
+            reason = "restricted"
+        else:
+            log.info(f"r/{subreddit_name}: in good standing — commenting allowed")
+            reason = "ok"
+
+        return {"banned": banned, "restricted": restricted,
+                "can_comment": can_comment, "reason": reason}
+
+    except Exception as e:
+        log.warning(f"Ban check failed for r/{subreddit_name}: {e}; defaulting to no-comment")
+        return {"banned": False, "restricted": True, "can_comment": False,
+                "reason": "check_failed"}
+
+
 async def join_subreddit(session, subreddit_name: str) -> bool:
     """Join (subscribe to) a subreddit if not already a member.
 

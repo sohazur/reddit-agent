@@ -159,6 +159,18 @@ async def run_cycle(config: Config) -> dict:
 
             log.info(f"Processing r/{subreddit.name}")
 
+            # Due diligence FIRST: are we banned or restricted here? A careful
+            # human checks before posting. If banned/restricted, skip commenting
+            # entirely (we still upvote/browse these subs later, which is safe).
+            from src.browser.engage import check_ban_status
+            ban = await check_ban_status(session, subreddit.name)
+            if not ban.get("can_comment", False):
+                log.info(
+                    f"r/{subreddit.name}: {ban.get('reason')} — skipping comment "
+                    f"engagement (upvote/browse only)"
+                )
+                continue
+
             # Generate/refresh subreddit intelligence
             await generate_intel_report(config, session, subreddit)
 
