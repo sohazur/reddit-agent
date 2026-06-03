@@ -90,10 +90,14 @@ def evaluate_feedback(feedback: dict, results: dict) -> str | None:
     if checked >= MIN_SAMPLE and removed / checked > REMOVAL_RATE_THRESHOLD:
         return f"removal rate {removed}/{checked} over {REMOVAL_RATE_THRESHOLD:.0%}"
 
-    # High compliance-block rate means the agent keeps trying to break rules.
-    blocks = results.get("compliance_blocks", 0)
+    # High DETERMINISTIC-block rate means the agent keeps trying to break HARD
+    # rules (links, karma, age, banned phrases) — a real danger signal. Fuzzy
+    # judge rejections ("doesn't fit this sub's tone") are NOT counted here:
+    # a picky sub (e.g. ELI5 wanting real explanations) is a fit problem, not an
+    # account-safety problem, and shouldn't trip the global breaker.
+    blocks = results.get("deterministic_blocks", 0)
     attempts = blocks + results.get("comments_posted", 0)
     if attempts >= MIN_SAMPLE and blocks / attempts > GATE_BLOCK_RATE_THRESHOLD:
-        return f"compliance block rate {blocks}/{attempts} over {GATE_BLOCK_RATE_THRESHOLD:.0%}"
+        return f"deterministic block rate {blocks}/{attempts} over {GATE_BLOCK_RATE_THRESHOLD:.0%}"
 
     return None

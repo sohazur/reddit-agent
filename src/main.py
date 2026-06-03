@@ -428,6 +428,10 @@ async def _process_thread(
             f"Compliance gate BLOCKED thread {thread.id}: {'; '.join(gate.reasons)}"
         )
         results["comments_skipped"] += 1
+        # Deterministic blocks (links, karma, age, banned phrases) signal the
+        # agent is trying to break HARD rules — these drive the circuit breaker.
+        results.setdefault("deterministic_blocks", 0)
+        results["deterministic_blocks"] += 1
         results.setdefault("compliance_blocks", 0)
         results["compliance_blocks"] += 1
         update_thread_evaluation(thread.id, score.total, "skipped")

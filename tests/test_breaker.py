@@ -59,15 +59,22 @@ def test_removal_rate_ignored_below_min_sample():
     assert reason is None
 
 
-def test_high_block_rate_trips():
-    # 8 blocks, 1 posted = 8/9 blocked, over threshold, above sample.
-    reason = breaker.evaluate_feedback({}, {"compliance_blocks": 8, "comments_posted": 1})
+def test_high_deterministic_block_rate_trips():
+    # 8 hard-rule blocks, 1 posted = 8/9, over threshold, above sample.
+    reason = breaker.evaluate_feedback({}, {"deterministic_blocks": 8, "comments_posted": 1})
     assert reason is not None
     assert "block" in reason
 
 
 def test_low_block_rate_does_not_trip():
-    reason = breaker.evaluate_feedback({}, {"compliance_blocks": 1, "comments_posted": 9})
+    reason = breaker.evaluate_feedback({}, {"deterministic_blocks": 1, "comments_posted": 9})
+    assert reason is None
+
+
+def test_fuzzy_judge_blocks_do_not_trip_breaker():
+    # A picky sub rejecting many comments on fit (fuzzy judge) is NOT a danger
+    # signal — only deterministic hard-rule blocks should trip the breaker.
+    reason = breaker.evaluate_feedback({}, {"compliance_blocks": 9, "comments_posted": 0})
     assert reason is None
 
 
