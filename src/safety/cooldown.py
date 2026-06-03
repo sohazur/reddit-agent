@@ -34,13 +34,23 @@ def _load() -> dict:
         return {}
     try:
         return json.loads(COOLDOWN_PATH.read_text()) or {}
-    except Exception:
+    except (json.JSONDecodeError, ValueError) as e:
+        # Corrupt file would fail OPEN (lose all cooldowns → post into a sub that
+        # just removed us). Loudly warn instead of silently emptying. Treat as no
+        # cooldowns this read, but don't overwrite the file — a later good write
+        # will repair it.
+        log.warning(f"cooldowns.json unreadable ({e}); treating as empty this read")
         return {}
 
 
 def _save(data: dict) -> None:
+    """Write atomically (temp + replace) so a killed write can't corrupt the file."""
+    import os
     COOLDOWN_PATH.parent.mkdir(parents=True, exist_ok=True)
-    COOLDOWN_PATH.write_text(json.dumps(data, indent=2))
+    tmp = str(COOLDOWN_PATH) + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(json.dumps(data, indent=2))
+    os.replace(tmp, str(COOLDOWN_PATH))
 
 
 def start_cooldown(subreddit: str, reason: str, days: int = DEFAULT_COOLDOWN_DAYS) -> None:

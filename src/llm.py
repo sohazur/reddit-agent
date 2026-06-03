@@ -128,40 +128,65 @@ def _call_agent(prompt: str, max_tokens: int, images: list[dict] | None) -> str:
     side. Times out (returns "") so a stuck host never hangs the cycle forever.
     """
     import time
+    import uuid
     from src.config import DATA_DIR
 
     req_path = DATA_DIR / ".llm-request.json"
     resp_path = DATA_DIR / ".llm-response.json"
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Clear any stale response, then write the request.
+    # Unique id per request so a LATE response from a previous call can never be
+    # mistaken for this call's answer (which could post wrong/stale content, or a
+    # wrong "compliant" verdict). The host MUST echo this id in its response.
+    req_id = uuid.uuid4().hex
+
+    # Clear any stale response, then write the request atomically (temp+replace
+    # so the host never reads a half-written request).
     try:
         resp_path.unlink()
     except FileNotFoundError:
         pass
-    req_path.write_text(json.dumps({
+    _atomic_write_json(req_path, {
+        "id": req_id,
         "prompt": prompt,
         "max_tokens": max_tokens,
         "has_images": bool(images),
         "ts": time.time(),
-    }))
-    log.info("Agent-provided LLM: wrote request, waiting for host agent response")
+    })
+    log.info(f"Agent-provided LLM: wrote request {req_id[:8]}, waiting for host")
 
-    # Poll for the host agent to answer (up to ~120s).
     deadline = time.time() + 120
     while time.time() < deadline:
         if resp_path.exists():
             try:
                 data = json.loads(resp_path.read_text())
-                resp_path.unlink()
-                req_path.unlink()
+            except (json.JSONDecodeError, ValueError):
+                # Partial/corrupt read (host mid-write) — retry next poll.
+                time.sleep(1)
+                continue
+            # Only accept a response that echoes THIS request's id.
+            if data.get("id") == req_id:
+                try:
+                    resp_path.unlink()
+                    req_path.unlink()
+                except FileNotFoundError:
+                    pass
                 return (data.get("response") or data.get("text") or "").strip()
-            except Exception:
-                pass
+            # Stale response from a previous call — ignore and keep waiting.
         time.sleep(1)
 
-    log.error("Agent-provided LLM: timed out waiting for host response")
+    log.error(f"Agent-provided LLM: timed out waiting for host response to {req_id[:8]}")
     return ""
+
+
+def _atomic_write_json(path, obj) -> None:
+    """Write JSON atomically (temp file + os.replace) so readers never see a
+    half-written file."""
+    import os
+    tmp = str(path) + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(json.dumps(obj))
+    os.replace(tmp, str(path))
 
 
 def _resolve_anthropic_model() -> str:

@@ -64,11 +64,17 @@ Cursor/OpenClaw and want to use YOUR model), set `LLM_MODE=agent-provided` in
 `.env`. Then the tool hands every LLM call to YOU via two files:
 
 ```
-1. tool writes data/.llm-request.json   {"prompt": "...", "max_tokens": N}
+1. tool writes data/.llm-request.json   {"id": "<uuid>", "prompt": "...", "max_tokens": N}
 2. YOU (the host agent): read it, run YOUR llm on the prompt,
-   write data/.llm-response.json        {"response": "<your model's answer>"}
+   write data/.llm-response.json        {"id": "<same uuid>", "response": "<answer>"}
 3. tool reads the response and continues
 ```
+
+**Critical:** you MUST copy the request's `id` into your response. The tool only
+accepts a response whose `id` matches the current request — this prevents a late
+answer to an old call from being used for a new one (which could post wrong
+content). Write the response atomically (write a temp file, then rename it over
+.llm-response.json) so the tool never reads a half-written file.
 
 So your loop, when `LLM_MODE=agent-provided`, also watches for `.llm-request.json`
 while a cycle runs: whenever it appears, answer it with your own model and write
