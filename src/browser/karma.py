@@ -25,17 +25,24 @@ async def get_account_karma(session) -> int:
 
     page = session.page
     try:
-        # Navigate to the user profile
+        # Navigate to the user profile. Try several signals for the username:
+        # the account-menu testid, any /user/<name> link, or the <shreddit-app>
+        # user attribute that modern Reddit sets.
         username = await page.evaluate("""
             () => {
-                // Try to get username from the page header
-                const el = document.querySelector(
-                    '[data-testid="username"], '
-                    + 'a[href^="/user/"]'
-                );
-                if (el) {
-                    const text = el.textContent.trim();
-                    return text.replace('u/', '');
+                const clean = s => (s || '').trim().replace(/^u\\//, '');
+                // 1) explicit username testid
+                let el = document.querySelector('[data-testid="username"]');
+                if (el && el.textContent.trim()) return clean(el.textContent);
+                // 2) shreddit app/header carries the logged-in user
+                const app = document.querySelector('shreddit-app, shreddit-async-loader');
+                const attr = app && (app.getAttribute('user') || app.getAttribute('current-user'));
+                if (attr) return clean(attr);
+                // 3) any profile link in the header nav
+                const link = document.querySelector('a[href^="/user/"]');
+                if (link) {
+                    const m = link.getAttribute('href').match(/\\/user\\/([^/]+)/);
+                    if (m) return clean(m[1]);
                 }
                 return '';
             }
@@ -58,10 +65,11 @@ async def get_account_karma(session) -> int:
         # Parse account age (cake-day) from the same page in one pass.
         _parse_and_cache_age(text)
 
-        # Look for karma patterns like "1 karma" or "1,234 karma"
-        karma_match = re.search(r"([\d,]+)\s+karma", text, re.IGNORECASE)
-        if karma_match:
-            karma = int(karma_match.group(1).replace(",", ""))
+        # Parse karma. Modern Reddit renders the number and the "Karma" label as
+        # separate lines ("5\nKarma" or "Karma\n5"); older/inline shows "5 karma".
+        # Try all three (whitespace includes newlines).
+        karma = _parse_karma(text)
+        if karma is not None:
             log.info(f"Account karma: {karma}")
             _cached_karma = karma
             return karma
@@ -74,6 +82,26 @@ async def get_account_karma(session) -> int:
         log.error(f"Failed to check karma: {e}")
         _cached_karma = 0
         return 0
+
+
+def _parse_karma(text: str) -> int | None:
+    """Parse total karma from profile text across old and new Reddit layouts.
+
+    Handles: "5 karma" (inline), "5\\nKarma" (number then label), and
+    "Karma\\n5" (label then number). Returns None if nothing matches.
+    """
+    patterns = [
+        r"([\d,]+)\s*karma\b",        # "5 karma" / "5\nKarma"
+        r"\bkarma\s*([\d,]+)",        # "Karma\n5"
+    ]
+    for pat in patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            try:
+                return int(m.group(1).replace(",", ""))
+            except ValueError:
+                continue
+    return None
 
 
 def _parse_and_cache_age(profile_text: str) -> None:
@@ -105,19 +133,26 @@ def _parse_and_cache_age(profile_text: str) -> None:
             except ValueError:
                 continue
 
-    # 2) Relative age, but ONLY when anchored to an age/cake label. Matching a
-    #    bare "5 months" anywhere would catch a post timestamp ("5 months ago")
-    #    and report a confidently-wrong age — which would let a too-young account
-    #    pass the age gate. Anchoring keeps us fail-closed when unsure.
-    m = re.search(
-        r"(?:reddit\s*age|cake\s*day|account\s*age)[^\d]{0,20}(\d+)\s*(y|yr|year|mo|month)s?\b",
-        profile_text,
-        re.IGNORECASE,
-    )
+    # 2) Relative age, ONLY when anchored to an age label (so we don't grab a
+    #    post timestamp like "5 months ago" and report a wrong age). Modern
+    #    Reddit shows "3 m" / "Reddit Age" with the number BEFORE the label and
+    #    single-letter units (m=months, y=years). Match both orders.
+    label = r"(?:reddit\s*age|cake\s*day|account\s*age)"
+    unit = r"(y|yr|year|mo|month|m|d|day)"
+    # number-before-label: "3 m\nReddit Age"
+    m = re.search(rf"(\d+)\s*{unit}s?\b[^\n]{{0,4}}\n?\s*{label}", profile_text, re.IGNORECASE)
+    # label-before-number: "Reddit Age\n3 m" or "Reddit age 2y"
+    if not m:
+        m = re.search(rf"{label}[^\d]{{0,20}}(\d+)\s*{unit}s?\b", profile_text, re.IGNORECASE)
     if m:
         n = int(m.group(1))
-        unit = m.group(2).lower()
-        _cached_age_days = n * 365 if unit.startswith("y") else n * 30
+        u = m.group(2).lower()
+        if u.startswith("y"):
+            _cached_age_days = n * 365
+        elif u.startswith("d"):
+            _cached_age_days = n
+        else:  # m / mo / month
+            _cached_age_days = n * 30
         log.info(f"Account age: ~{_cached_age_days}d (relative, anchored)")
         return
 
