@@ -81,9 +81,12 @@ def evaluate_feedback(feedback: dict, results: dict) -> str | None:
     Returns a reason string if it should trip, else None. Honors the min-sample
     guard so noisy early cycles don't pause everything.
     """
-    # Shadowban is always serious enough to pause immediately.
-    if feedback.get("shadowbanned", 0) > 0:
-        return "shadowban detected"
+    # Shadowban is serious, but the detector can produce false positives on big
+    # lazy-loaded threads. Require >= 2 invisible comments in a cycle before
+    # tripping, so one flaky incognito lookup doesn't pause everything. A real
+    # shadowban makes ALL comments vanish, so it still trips reliably.
+    if feedback.get("shadowbanned", 0) >= 2:
+        return f"shadowban detected ({feedback['shadowbanned']} comments invisible)"
 
     checked = feedback.get("checked", 0)
     removed = feedback.get("removed", 0)

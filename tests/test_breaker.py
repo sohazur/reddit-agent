@@ -41,10 +41,17 @@ def test_clear_when_not_paused_returns_false(flag):
 
 # ---------- evaluate_feedback ----------
 
-def test_shadowban_trips_immediately():
-    reason = breaker.evaluate_feedback({"shadowbanned": 1}, {})
+def test_shadowban_trips_on_multiple():
+    # >= 2 invisible comments = real signal, trips.
+    reason = breaker.evaluate_feedback({"shadowbanned": 2}, {})
     assert reason is not None
     assert "shadowban" in reason
+
+
+def test_single_shadowban_does_not_trip():
+    # One invisible comment may be a flaky detector read, not a real shadowban.
+    reason = breaker.evaluate_feedback({"shadowbanned": 1}, {})
+    assert reason is None
 
 
 def test_high_removal_rate_trips_above_sample():

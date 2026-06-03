@@ -545,25 +545,40 @@ async def check_comment_visible(
         await incognito_page.goto(thread_url, wait_until="domcontentloaded")
         await asyncio.sleep(human_delay(2000, 4000))
 
-        # Scroll to load comments
-        for _ in range(3):
-            await incognito_page.evaluate("window.scrollBy(0, window.innerHeight)")
-            await asyncio.sleep(human_delay(500, 1000))
+        # Normalize both sides so curly quotes, emoji, and whitespace don't cause
+        # false misses. We match on a distinctive run of words from the comment,
+        # not the literal first-50-chars (which breaks on a single quote diff).
+        def _norm(s: str) -> str:
+            s = (s or "").lower()
+            for a, b in [("’", "'"), ("‘", "'"), ("“", '"'),
+                         ("”", '"'), ("—", "-"), ("–", "-")]:
+                s = s.replace(a, b)
+            return re.sub(r"[^a-z0-9 ]", " ", re.sub(r"\s+", " ", s)).strip()
 
-        # Search for our comment text in the page
-        # Use first 50 chars as a snippet to match
-        snippet = comment_text_snippet[:50].replace("'", "\\'")
-        found = await incognito_page.evaluate(f"""
-            () => {{
-                return document.body.innerText.includes('{snippet}');
-            }}
-        """)
+        target = _norm(comment_text_snippet)
+        # A distinctive ~6-word slice is enough to identify the comment uniquely
+        # without being fragile to trailing emoji/punctuation.
+        words = target.split()
+        needle = " ".join(words[:8]) if len(words) >= 4 else target
+        if not needle:
+            return True  # nothing to match → don't claim shadowban
 
-        return found
+        # Scroll harder to trigger lazy-loaded comments on big threads, checking
+        # after each scroll so we can stop early once found.
+        for _ in range(8):
+            page_text = _norm(await incognito_page.evaluate("document.body.innerText"))
+            if needle in page_text:
+                return True
+            await incognito_page.evaluate("window.scrollBy(0, window.innerHeight * 2)")
+            await asyncio.sleep(human_delay(600, 1200))
+
+        # Final check after all scrolling.
+        page_text = _norm(await incognito_page.evaluate("document.body.innerText"))
+        return needle in page_text
 
     except Exception as e:
         log.error(f"Shadowban check failed: {e}")
-        return True  # Assume visible on error (fail open)
+        return True  # Assume visible on error (fail open — never false-accuse)
 
 
 async def _screenshot_error(page: Page, name: str) -> None:
