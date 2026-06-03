@@ -3,6 +3,20 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.10.0] - 2026-06-02
+
+### Added
+- **Account warming phases.** The agent now gates its own behavior by karma so a new account builds trust before promoting: Phase 1 (<50 karma) comments only, no posts, no promotion; Phase 2 (50-199) soft posts; Phase 3 (200+) full strategy. This prevents the exact failure where a low-karma account's promotional post gets filtered by Reddit.
+- **Join target subreddits.** The agent subscribes to the subs it's active in (real members behave more naturally and some subs gate posting on membership).
+- **Removal cooldowns + reason learning.** When a post or comment is removed (by a mod or Reddit's spam filter), the agent backs off that subreddit for a few days, captures the actual removal reason from the mod/Reddit DM, and records it so future content avoids the same rule.
+- **Use the host agent's LLM (no API key needed).** When run inside Cursor/OpenClaw with `LLM_MODE=agent-provided` (or no key set), the agent hands each LLM call to the host's model via a file exchange — so it uses whatever model the host has, with no key of its own. If a real API key is present, it's used directly.
+
+### Changed
+- Upvoting now skips the account's own posts and comments (upvoting yourself is a ban signal).
+
+### Fixed
+- The agent-provided LLM handoff correlates each response to its request by id, so a late answer to a previous call can never be used for a new one. Cooldown and handoff files are written atomically.
+
 ## [0.9.2] - 2026-06-02
 
 ### Fixed
