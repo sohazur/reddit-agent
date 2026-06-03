@@ -22,6 +22,49 @@ log = get_logger("session")
 
 COOKIES_PATH = DATA_DIR / "cookies.json"
 
+# Map browser-extension sameSite values (Cookie-Editor, Chrome export) to the
+# three Playwright accepts. Playwright rejects anything else with a hard error.
+_SAMESITE_MAP = {
+    "no_restriction": "None",
+    "unspecified": "Lax",
+    "lax": "Lax",
+    "strict": "Strict",
+    "none": "None",
+    "": "Lax",
+}
+# Keys Playwright's storage_state cookie schema understands. Extension exports
+# carry extras (hostOnly, storeId, session, sameParty…) that must be dropped.
+_PW_COOKIE_KEYS = {
+    "name", "value", "domain", "path",
+    "expires", "httpOnly", "secure", "sameSite",
+}
+
+
+def _normalize_cookies(raw: list[dict]) -> list[dict]:
+    """Convert Cookie-Editor / browser-export cookies to Playwright's schema.
+
+    Handles the two incompatibilities that crash new_context():
+    - sameSite: extensions use no_restriction/unspecified/lax/strict; Playwright
+      only accepts Strict|Lax|None.
+    - expirationDate (float seconds) -> expires; and unknown keys are stripped.
+    Session cookies (no expiry) are kept without an `expires` field.
+    """
+    out = []
+    for c in raw:
+        if not c.get("name") or "domain" not in c:
+            continue
+        cookie = {k: c[k] for k in _PW_COOKIE_KEYS if k in c}
+        cookie["sameSite"] = _SAMESITE_MAP.get(
+            str(c.get("sameSite", "")).lower(), "Lax"
+        )
+        # Extension exports use `expirationDate`; Playwright wants `expires`.
+        if "expires" not in cookie and c.get("expirationDate") is not None:
+            cookie["expires"] = float(c["expirationDate"])
+        out.append(cookie)
+    if not out:
+        raise ValueError("no usable cookies after normalization")
+    return out
+
 
 class RedditSession:
     """Manages a browser session for Reddit interaction."""
@@ -46,11 +89,12 @@ class RedditSession:
         # Load saved cookies if available
         if COOKIES_PATH.exists():
             try:
-                cookies = json.loads(COOKIES_PATH.read_text())
+                raw_cookies = json.loads(COOKIES_PATH.read_text())
+                cookies = _normalize_cookies(raw_cookies)
                 context_options["storage_state"] = {"cookies": cookies, "origins": []}
-                log.info("Loaded saved cookies")
-            except (json.JSONDecodeError, KeyError):
-                log.warning("Failed to load cookies, starting fresh")
+                log.info(f"Loaded {len(cookies)} saved cookies")
+            except (json.JSONDecodeError, KeyError, ValueError) as e:
+                log.warning(f"Failed to load cookies, starting fresh: {e}")
 
         self._context = await self._browser.new_context(**context_options)
         self._page = await self._context.new_page()
