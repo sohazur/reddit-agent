@@ -1,0 +1,15 @@
+# systemd timer: fire the heartbeat every 30 minutes (jittered).
+# The tool's --status decides whether each tick actually runs a cycle, so a
+# frequent tick is fine — most ticks are no-ops.
+[Unit]
+Description=Reddit Agent heartbeat timer
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+# Randomize so runs don't land on an exact clock minute every time.
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

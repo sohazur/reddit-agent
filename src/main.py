@@ -78,6 +78,21 @@ async def run_cycle(config: Config) -> dict:
 
     cadence = CadenceManager(config)
 
+    # GLOBAL CIRCUIT BREAKER: if tripped, do NOT post anything. Still run the
+    # feedback loop so we keep monitoring the account while paused.
+    from src.safety.breaker import is_paused, get_state, evaluate_feedback, trip
+    if is_paused():
+        state = get_state()
+        log.warning(f"PAUSED ({state.reason}, since {state.since}) — feedback only")
+        session = await RedditSession(config).start()
+        try:
+            feedback = await run_feedback_loop(config, session)
+            update_learnings(feedback)
+        finally:
+            await session.close()
+        results["paused"] = True
+        return results
+
     if not cadence.can_post_today():
         log.info("Daily quota exhausted, running feedback only")
         session = await RedditSession(config).start()
@@ -113,6 +128,10 @@ async def run_cycle(config: Config) -> dict:
         reset_karma_cache()
         account_karma = await get_account_karma(session)
         log.info(f"Account karma: {account_karma}")
+
+        # Ensure a consistent persona exists (generated once, then reused).
+        from src.intelligence.persona import ensure_persona
+        ensure_persona(config)
 
         for subreddit in config.subreddits:
             if not cadence.can_post_today():
@@ -166,7 +185,10 @@ async def run_cycle(config: Config) -> dict:
         # Engagement: upvote, browse, reply to replies
         from src.browser.engage import upvote_posts, reply_to_replies, browse_subreddit
 
-        if config.engage_upvote:
+        if config.dry_run:
+            log.info("[DRY RUN] Skipping mutating engagement (upvote, reply, DM). Browse still runs.")
+
+        if config.engage_upvote and not config.dry_run:
             log.info("Upvoting posts for natural activity")
             for sub in config.subreddits[:3]:
                 if sub.min_karma <= account_karma:
@@ -175,7 +197,7 @@ async def run_cycle(config: Config) -> dict:
                     except Exception as e:
                         log.warning(f"Upvote failed in r/{sub.name}: {e}")
 
-        if config.engage_reply:
+        if config.engage_reply and not config.dry_run:
             log.info("Checking for replies to our comments")
             try:
                 await reply_to_replies(session, config)
@@ -193,8 +215,8 @@ async def run_cycle(config: Config) -> dict:
                 except Exception as e:
                     log.warning(f"Browse failed: {e}")
 
-        # DMs: reply to incoming + proactive outreach
-        if config.engage_dm_reply or config.engage_dm_outreach:
+        # DMs: reply to incoming + proactive outreach (both mutate; skip on dry run)
+        if (config.engage_dm_reply or config.engage_dm_outreach) and not config.dry_run:
             from src.browser.dms import (
                 check_and_reply_dms,
                 find_outreach_opportunities,
@@ -245,6 +267,18 @@ async def run_cycle(config: Config) -> dict:
                 config,
                 "WARNING",
                 f"High removal rate: {feedback['removed']}/{feedback['checked']} comments removed",
+            )
+
+        # GLOBAL CIRCUIT BREAKER: trip if signals warrant, pausing all future
+        # posting until a human runs `reddit-agent --resume`.
+        breaker_reason = evaluate_feedback(feedback, results)
+        if breaker_reason:
+            trip(breaker_reason)
+            send_alert(
+                config,
+                "CRITICAL",
+                f"Circuit breaker TRIPPED ({breaker_reason}). All posting paused. "
+                f"Run `reddit-agent --resume` after you investigate.",
             )
 
     except Exception as e:
@@ -304,6 +338,21 @@ async def _process_thread(
         update_thread_evaluation(thread.id, score.total, "skipped")
         return
 
+    # Decide the content tier for this comment (three-tier authority mix).
+    # Classify the desired tier from brand relevance, then cap it to keep
+    # promotional content rare over a rolling window.
+    from src.intelligence.tiers import allowed_tier, classify_desired_tier
+    from src.db import get_recent_tier_counts
+
+    desired = classify_desired_tier(config.objective, config.domain, score.total)
+    tier_decision = allowed_tier(
+        desired,
+        get_recent_tier_counts(config.tier_window),
+        window=config.tier_window,
+    )
+    tier = tier_decision.tier
+    log.info(f"Content tier {tier} (desired {desired}): {tier_decision.reason}")
+
     # Generate comment (karma-mode = genuine, no brand agenda)
     comment_text = await generate_comment(
         config=config,
@@ -312,6 +361,7 @@ async def _process_thread(
         thread_body=thread_content.get("body", thread.body),
         thread_comments=comments_text,
         karma_mode=karma_mode,
+        tier=tier,
     )
 
     if not comment_text:
@@ -340,6 +390,7 @@ async def _process_thread(
             thread_body=thread_content.get("body", thread.body),
             thread_comments=comments_text,
             karma_mode=karma_mode,
+            tier=tier,
         )
 
         if not comment_text:
@@ -357,6 +408,62 @@ async def _process_thread(
             results["comments_skipped"] += 1
             return
 
+    # COMPLIANCE GATE (runs AFTER quality, BEFORE posting).
+    # Deterministic floor first: a block here is TERMINAL — no regeneration,
+    # because regenerating text cannot fix low karma/age. Links may be stripped.
+    from src.intelligence.compliance import deterministic_gate, extract_policy
+    from src.intelligence.compliance_judge import judge_fuzzy_compliance
+    from src.browser.karma import get_account_karma, get_account_age_days
+    from src.intelligence.generator import _load_subreddit_intel
+
+    account_karma = await get_account_karma(session)
+    account_age_days = await get_account_age_days(session)
+    policy = extract_policy(_load_subreddit_intel(subreddit.name), subreddit)
+
+    gate = deterministic_gate(
+        comment_text, policy, account_karma, account_age_days
+    )
+    if gate.blocked:
+        log.warning(
+            f"Compliance gate BLOCKED thread {thread.id}: {'; '.join(gate.reasons)}"
+        )
+        results["comments_skipped"] += 1
+        results.setdefault("compliance_blocks", 0)
+        results["compliance_blocks"] += 1
+        update_thread_evaluation(thread.id, score.total, "skipped")
+        return
+    if gate.rewritten_text is not None:
+        comment_text = gate.rewritten_text
+
+    # Fuzzy judge for subjective rules. May only ADD a block; fails closed.
+    judge = await judge_fuzzy_compliance(
+        config=config,
+        comment_text=comment_text,
+        subreddit_name=subreddit.name,
+        thread_title=thread.title,
+        rules=subreddit.notes,
+    )
+    if not judge.compliant:
+        log.warning(
+            f"Fuzzy compliance judge BLOCKED thread {thread.id}: {judge.reason}"
+        )
+        results["comments_skipped"] += 1
+        results.setdefault("compliance_blocks", 0)
+        results["compliance_blocks"] += 1
+        update_thread_evaluation(thread.id, score.total, "skipped")
+        return
+
+    # DRY RUN: show what we WOULD post, but perform no mutating action.
+    if config.dry_run:
+        log.info(
+            f"[DRY RUN] WOULD POST to {thread.url} (tier {tier}, "
+            f"quality {quality.average:.1f}): {comment_text}"
+        )
+        results.setdefault("dry_run_would_post", 0)
+        results["dry_run_would_post"] += 1
+        update_thread_evaluation(thread.id, score.total, "evaluated")
+        return
+
     # Post the comment
     log.info(f"Posting comment to thread {thread.id}")
     post_result = await browser_post(session, thread.url, comment_text)
@@ -369,6 +476,7 @@ async def _process_thread(
             subreddit=subreddit.name,
             comment_text=comment_text,
             quality_score=quality.average,
+            tier=tier,
         )
         update_thread_evaluation(thread.id, score.total, "commented")
         cadence.record_post()
@@ -413,10 +521,32 @@ async def main():
     parser.add_argument(
         "--digest", action="store_true", help="Send daily digest only"
     )
+    parser.add_argument(
+        "--resume", action="store_true",
+        help="Clear the circuit breaker and resume posting",
+    )
+    parser.add_argument(
+        "--status", action="store_true",
+        help="Print a JSON status snapshot for a driving agent (no actions taken)",
+    )
     args = parser.parse_args()
 
     config = load_config()
     init_db()
+
+    if args.status:
+        from src.status import print_status
+        print_status(config)
+        return
+
+    if args.resume:
+        from src.safety.breaker import clear, get_state
+        state = get_state()
+        if clear():
+            print(f"Resumed. (was paused: {state.reason})")
+        else:
+            print("Not paused — nothing to resume.")
+        return
 
     if args.digest:
         summary = get_daily_summary()

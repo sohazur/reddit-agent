@@ -73,6 +73,30 @@ class TestLoadConfig:
             assert config.min_comment_interval_minutes == 30
             assert config.quality_threshold == 8
 
+    def test_dry_run_defaults_false(self):
+        """Dry run must default to OFF — never silently suppress real actions."""
+        env = {"REDDIT_USERNAME": "t", "REDDIT_PASSWORD": "t"}
+        with patch.dict(os.environ, env, clear=True):
+            assert load_config().dry_run is False
+
+    def test_dry_run_enabled(self):
+        env = {"REDDIT_USERNAME": "t", "REDDIT_PASSWORD": "t", "DRY_RUN": "true"}
+        with patch.dict(os.environ, env, clear=True):
+            assert load_config().dry_run is True
+
+    def test_strategy_fields(self):
+        """Domain and tier window should load from env."""
+        env = {
+            "REDDIT_USERNAME": "t",
+            "REDDIT_PASSWORD": "t",
+            "REDDIT_AGENT_DOMAIN": "technical SEO",
+            "TIER_WINDOW": "30",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            config = load_config()
+            assert config.domain == "technical SEO"
+            assert config.tier_window == 30
+
 
 class TestLoadPrompt:
     def test_loads_existing_prompt(self):

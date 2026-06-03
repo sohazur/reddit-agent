@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent for an always-on Mac. Fires the heartbeat every 30 minutes.
+  Install: copy to ~/Library/LaunchAgents/ (edit the two paths below first),
+  then: launchctl load ~/Library/LaunchAgents/com.reddit-agent.heartbeat.plist
+  See deploy/DEPLOY.md.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.reddit-agent.heartbeat</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <!-- EDIT: absolute path to heartbeat.sh -->
+        <string>/Users/YOU/.reddit-agent/deploy/heartbeat.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- EDIT: absolute path to your install dir -->
+        <key>REDDIT_AGENT_DIR</key>
+        <string>/Users/YOU/.reddit-agent</string>
+    </dict>
+
+    <!-- Every 30 minutes. -->
+    <key>StartInterval</key>
+    <integer>1800</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/YOU/.reddit-agent/data/heartbeat.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/YOU/.reddit-agent/data/heartbeat.log</string>
+</dict>
+</plist>
