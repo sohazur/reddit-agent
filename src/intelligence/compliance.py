@@ -120,6 +120,38 @@ def strip_links(text: str) -> str:
     return re.sub(r"\s{2,}", " ", cleaned).strip()
 
 
+# Connectors that, if a link was removed right after them, leave a broken seam:
+# "...hiking at  and it helped" / "...check it out at" / "...see  for more".
+_CONNECTORS = r"at|to|via|on|see|check|visit|here|link|url|from|like|for|out"
+
+# Dangling at the very end: "...check it out at"
+_DANGLING_TAIL = re.compile(rf"\b(?:{_CONNECTORS})\s*$", re.IGNORECASE)
+# Dangling mid-string where the link used to be: a connector followed by 2+
+# spaces (the gap the stripped URL left) then more text, or a connector then
+# a word that doesn't belong ("for and", "see for", "at and").
+_DANGLING_SEAM = re.compile(
+    rf"\b(?:{_CONNECTORS})\s{{2,}}\S|\b(?:{_CONNECTORS})\s+(?:and|for|the|but|or)\b",
+    re.IGNORECASE,
+)
+
+
+def _strip_left_a_fragment(original: str, stripped: str) -> bool:
+    """Heuristic: did removing the link leave a broken sentence?
+
+    Catches the dry-run failure where a link removed mid-clause left a dangling
+    connector or an incomplete trailing fragment. Conservative: when unsure,
+    return True so the caller blocks and regenerates rather than posting junk.
+    """
+    if not stripped:
+        return True
+    if _DANGLING_TAIL.search(stripped) or _DANGLING_SEAM.search(stripped):
+        return True
+    # Big collateral loss beyond the URL itself → likely mangled.
+    if len(stripped) < 0.4 * len(original):
+        return True
+    return False
+
+
 def deterministic_gate(
     comment_text: str,
     policy: SubredditPolicy,
@@ -179,14 +211,20 @@ def deterministic_gate(
             reasons.append(f"self-promotion signals: {', '.join(promo_hits)}")
 
     # --- Links ---
+    # A banned link is a BLOCK, not a salvage. Stripping a URL mid-sentence
+    # leaves a grammatically broken fragment (observed in dry-run), which is
+    # worse than skipping the thread and regenerating a clean comment. In a
+    # no-links sub a value comment shouldn't contain a link anyway.
     if policy.no_links and contains_link(text):
         if strip_links_if_banned:
-            rewritten = strip_links(text)
-            if not rewritten:
-                # Stripping links left nothing meaningful — block.
-                reasons.append("comment was only a link")
+            # Only salvage when stripping leaves a clean, complete-looking
+            # comment (no dangling connector at the seam). Otherwise block.
+            candidate = strip_links(text)
+            if candidate and not _strip_left_a_fragment(text, candidate):
+                rewritten = candidate
+                log.info("Stripped banned link(s) cleanly from comment")
             else:
-                log.info("Stripped banned link(s) from comment before posting")
+                reasons.append("contains link in a no-links subreddit (strip would mangle)")
         else:
             reasons.append("contains link in a no-links subreddit")
 

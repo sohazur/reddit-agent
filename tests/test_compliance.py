@@ -117,12 +117,24 @@ def test_blocks_banned_phrase():
 
 # ---------- links ----------
 
-def test_strips_links_when_banned_and_allows_rest():
+def test_strips_links_cleanly_when_link_trails_complete_thought():
+    # Link at the end of a complete sentence → clean strip, allowed.
     policy = SubredditPolicy(no_links=True, no_self_promotion=False)
-    res = deterministic_gate("good point, see https://example.com for more", policy, 999, 999)
+    res = deterministic_gate(
+        "core web vitals tanked our load times https://example.com", policy, 999, 999
+    )
     assert res.allowed
     assert res.rewritten_text is not None
     assert "example.com" not in res.rewritten_text
+
+
+def test_blocks_when_strip_would_mangle_sentence():
+    # Link mid-clause: stripping leaves a dangling connector → block, not junk.
+    policy = SubredditPolicy(no_links=True, no_self_promotion=False)
+    res = deterministic_gate(
+        "i started hiking at https://example.com and it helped", policy, 999, 999
+    )
+    assert res.blocked
 
 
 def test_blocks_link_only_comment():
