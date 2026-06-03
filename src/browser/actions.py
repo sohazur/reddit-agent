@@ -9,7 +9,7 @@ import re
 from playwright.async_api import Page
 
 from src.browser.stealth import human_delay, human_typing_delay
-from src.config import SCREENSHOTS_DIR
+from src.config import SCREENSHOTS_DIR, prune_screenshots
 from src.log import get_logger
 
 log = get_logger("actions")
@@ -620,3 +620,5 @@ async def _screenshot_error(page: Page, name: str) -> None:
         log.info(f"Error screenshot: {path}")
     except Exception:
         pass
+    # Keep the screenshot dir bounded so a long unattended run can't fill disk.
+    prune_screenshots()

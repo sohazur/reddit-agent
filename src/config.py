@@ -17,6 +17,31 @@ DB_PATH = DATA_DIR / "reddit.db"
 LEARNINGS_PATH = DATA_DIR / "learnings.md"
 SUBREDDIT_REPORTS_DIR = DATA_DIR / "subreddit_reports"
 
+# Cap how many debug PNGs we keep so an unattended multi-hour run can't fill
+# the disk (the agent saves one on every error). Keep only the newest N.
+MAX_SCREENSHOTS = 20
+
+
+def prune_screenshots(keep: int = MAX_SCREENSHOTS) -> None:
+    """Delete oldest screenshots beyond the retention cap.
+
+    Best-effort: never raises into the caller (a screenshot is debug-only and
+    must not break the run). Keeps the `keep` most recently modified PNGs.
+    """
+    try:
+        pngs = sorted(
+            SCREENSHOTS_DIR.glob("*.png"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        for stale in pngs[keep:]:
+            try:
+                stale.unlink()
+            except OSError:
+                pass
+    except OSError:
+        pass
+
 
 @dataclass
 class RedditAccount:

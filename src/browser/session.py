@@ -15,7 +15,7 @@ from src.browser.stealth import (
     get_stealth_launch_args,
     human_delay,
 )
-from src.config import Config, DATA_DIR, SCREENSHOTS_DIR
+from src.config import Config, DATA_DIR, SCREENSHOTS_DIR, prune_screenshots
 from src.log import get_logger
 
 log = get_logger("session")
@@ -213,6 +213,8 @@ class RedditSession:
         path = SCREENSHOTS_DIR / f"{name}_{timestamp}.png"
         await self._page.screenshot(path=str(path))
         log.info(f"Screenshot saved: {path}")
+        # Keep the screenshot dir bounded so a long unattended run can't fill disk.
+        prune_screenshots()
         return path
 
     @property
