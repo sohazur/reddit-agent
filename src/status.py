@@ -83,6 +83,15 @@ def build_status(config: Config) -> dict:
             status["opportunities"] = count_opportunities()
         except Exception:
             pass
+        # Surface a network-block backoff so the driver knows research is
+        # holding off (and roughly for how long) rather than idle.
+        try:
+            from src.safety.block_backoff import seconds_remaining
+            backoff = seconds_remaining()
+            if backoff > 0:
+                status["research_backoff_s"] = backoff
+        except Exception:
+            pass
 
     return status
 
