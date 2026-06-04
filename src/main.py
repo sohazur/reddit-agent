@@ -98,6 +98,15 @@ async def run_cycle(config: Config) -> dict:
         "errors": 0,
     }
 
+    # Self-audit + auto-heal before doing anything. Fixes safe problems (db,
+    # screenshot/disk overflow) silently; escalates the rest (missing/expired
+    # cookies, pause state) via alert so an unattended agent recovers on its own.
+    try:
+        from src.watchdog import run_watchdog
+        results["watchdog"] = run_watchdog(config)
+    except Exception as e:
+        log.error(f"Watchdog failed: {e}")
+
     cadence = CadenceManager(config)
 
     # RESEARCH-ONLY mode: never post. Just monitor account health (read-only)
@@ -643,6 +652,10 @@ async def main():
         "--research", action="store_true",
         help="Run one research pass only (discover opportunities, no posting)",
     )
+    parser.add_argument(
+        "--audit", action="store_true",
+        help="Print a self-audit of agent health (no actions taken)",
+    )
     args = parser.parse_args()
 
     config = load_config()
@@ -651,6 +664,11 @@ async def main():
     if args.status:
         from src.status import print_status
         print_status(config)
+        return
+
+    if args.audit:
+        from src.watchdog import print_audit
+        print_audit(config)
         return
 
     if args.resume:
