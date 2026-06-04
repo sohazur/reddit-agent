@@ -25,3 +25,6 @@ data/research_insights.md
 data/research_subreddits.yaml
 # Local dev test virtualenv
 .venv-test/
+# Local, per-deployment operations journal (this account's running state).
+# Not source — generic operator docs live in RUN.md (committed).
+OPERATIONS_LOG.md
