@@ -38,6 +38,22 @@ Reddit actively bans AI-generated content. This agent is designed to avoid detec
 
 During setup you define your goal (e.g., "promote my SaaS to developers" or "build authority in SEO"). The agent uses this objective to decide which threads are relevant and what angle to take in comments — without ever being explicitly promotional.
 
+### Research / Opportunity-Discovery Mode
+
+A 24/7 lead-finder mode. Instead of (or after) posting, the agent scans Reddit
+(read-only) for posts describing problems **your services solve**, ranks them,
+and builds a list of links + how-we-help summaries in `data/opportunities.md`.
+It also learns what's getting traction in your niche, and can push new
+opportunities to your platform. Because it never posts, it's safe to run around
+the clock — even while posting is paused.
+
+```bash
+RESEARCH_MODE=after_quota   # off | after_quota | only
+reddit-agent research        # one pass on demand
+```
+
+Describe what you sell in `data/services.yaml`. Full guide: **[RESEARCH.md](RESEARCH.md)**.
+
 ## Install
 
 ### npm (recommended)
@@ -153,6 +169,8 @@ Override the model: `REDDIT_AGENT_MODEL=gpt-4o` in `.env`
 | `reddit-agent run` | Run one engagement cycle |
 | `reddit-agent feedback` | Check karma and removals |
 | `reddit-agent digest` | Performance summary |
+| `reddit-agent research` | Run one opportunity-discovery pass |
+| `reddit-agent audit` | Self-audit agent health (no actions) |
 | `reddit-agent objective "new goal"` | Change objective |
 | `reddit-agent status` | Config and health check |
 | `reddit-agent update` | Pull latest version |

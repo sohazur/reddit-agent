@@ -42,22 +42,25 @@ def build_status(config: Config) -> dict:
     quota_left = max(0, limit - comments_today)
 
     interval = config.cycle_interval_hours
-    # The agent should run when: not paused, quota remains, and enough time has
-    # passed since the last run (or it has never run).
-    should_run = (
-        not paused.paused
-        and quota_left > 0
-        and (hours_since is None or hours_since >= interval)
-    )
+    time_ok = hours_since is None or hours_since >= interval
+    # Posting can proceed when not paused and quota remains.
+    posting_ok = not paused.paused and quota_left > 0
+    # Research is read-only, so it keeps the agent productive even while paused
+    # or after the quota is spent. When it's on, the loop should keep ticking.
+    research_on = config.research_mode != "off"
+    should_run = time_ok and (posting_ok or research_on)
 
     alerts = []
     if paused.paused:
-        alerts.append(f"PAUSED: {paused.reason} (since {paused.since}) — "
-                      f"run `reddit-agent --resume` after investigating")
-    if quota_left == 0:
+        msg = f"PAUSED: {paused.reason} (since {paused.since}) — " \
+              f"run `reddit-agent --resume` after investigating"
+        if research_on:
+            msg += " (research continues; posting is paused)"
+        alerts.append(msg)
+    if quota_left == 0 and not research_on:
         alerts.append("daily comment quota reached")
 
-    return {
+    status = {
         "last_run": last_run,
         "hours_since": hours_since,
         "cycle_interval_hours": interval,
@@ -65,6 +68,7 @@ def build_status(config: Config) -> dict:
         "paused": paused.paused,
         "paused_reason": paused.reason if paused.paused else None,
         "dry_run": config.dry_run,
+        "research_mode": config.research_mode,
         "today": {
             "comments": comments_today,
             "comment_limit": limit,
@@ -72,6 +76,15 @@ def build_status(config: Config) -> dict:
         },
         "alerts": alerts,
     }
+
+    if research_on:
+        try:
+            from src.research.store import count_opportunities
+            status["opportunities"] = count_opportunities()
+        except Exception:
+            pass
+
+    return status
 
 
 def print_status(config: Config) -> None:

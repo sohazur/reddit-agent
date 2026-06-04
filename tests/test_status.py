@@ -68,3 +68,25 @@ def test_recent_run_blocks_until_interval(env):
 def test_dry_run_surfaced(env):
     s = status_mod.build_status(_config(dry_run=True))
     assert s["dry_run"] is True
+
+
+def test_research_keeps_running_when_quota_exhausted(env):
+    """With research on, a spent quota must NOT stop the 24/7 loop."""
+    with patch("src.status.get_today_comment_count", return_value=5):
+        s = status_mod.build_status(
+            _config(max_comments_per_day=5, research_mode="after_quota")
+        )
+    assert s["today"]["quota_left"] == 0
+    assert s["should_run"] is True
+    assert s["research_mode"] == "after_quota"
+    # The bare "quota reached" alert is suppressed because research continues.
+    assert not any("quota reached" in a for a in s["alerts"])
+
+
+def test_research_keeps_running_while_paused(env):
+    """Read-only research continues even when posting is paused."""
+    breaker.trip("shadowban detected")
+    s = status_mod.build_status(_config(research_mode="only"))
+    assert s["paused"] is True
+    assert s["should_run"] is True
+    assert any("research continues" in a for a in s["alerts"])

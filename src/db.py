@@ -70,6 +70,49 @@ def init_db(db_path: Path = DB_PATH) -> None:
                 shadowban_detected INTEGER DEFAULT 0
             );
 
+            -- Research / Opportunity-Discovery mode -------------------------
+            CREATE TABLE IF NOT EXISTS opportunities (
+                id TEXT PRIMARY KEY,            -- stable hash of the thread URL
+                subreddit TEXT,
+                thread_id TEXT,
+                url TEXT NOT NULL,
+                title TEXT,
+                author TEXT,
+                problem_summary TEXT,
+                matched_services TEXT,         -- JSON array of service ids
+                suggested_angle TEXT,
+                priority INTEGER DEFAULT 0,     -- 1-10
+                confidence REAL DEFAULT 0,
+                status TEXT DEFAULT 'new',      -- new, pushed, actioned, dismissed
+                found_at TEXT NOT NULL,
+                pushed_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS research_subreddits (
+                name TEXT PRIMARY KEY,
+                discovered_via TEXT,            -- seed, llm, reddit_search, web_search
+                relevance INTEGER DEFAULT 0,    -- 1-10
+                rationale TEXT,
+                status TEXT DEFAULT 'candidate',-- candidate, active, skip
+                added_at TEXT NOT NULL,
+                last_scanned_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS viral_observations (
+                id TEXT PRIMARY KEY,            -- thread id
+                subreddit TEXT,
+                title TEXT,
+                url TEXT,
+                score INTEGER DEFAULT 0,
+                comment_count INTEGER DEFAULT 0,
+                observed_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_opps_status ON opportunities(status);
+            CREATE INDEX IF NOT EXISTS idx_opps_priority ON opportunities(priority);
+            CREATE INDEX IF NOT EXISTS idx_opps_found ON opportunities(found_at);
+            CREATE INDEX IF NOT EXISTS idx_viral_score ON viral_observations(score);
+
             CREATE INDEX IF NOT EXISTS idx_threads_subreddit ON threads(subreddit);
             CREATE INDEX IF NOT EXISTS idx_threads_status ON threads(status);
             CREATE INDEX IF NOT EXISTS idx_comments_thread ON comments(thread_id);
