@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.12.2] - 2026-06-04
+
+### Changed
+- **Default OpenRouter model is now `minimax/minimax-m3`** (a reasoning model) instead of the free Gemma. Reasoning is enabled by default; since reasoning tokens count against `max_tokens`, OpenRouter calls now floor the budget at 2048 so the actual answer isn't truncated. Disable reasoning with `REDDIT_AGENT_REASONING=false`. As always, swap models via `REDDIT_AGENT_MODEL` with no code change. Verified live (the strawberry test returns "3").
+
 ## [0.12.1] - 2026-06-04
 
 ### Added
