@@ -15,6 +15,7 @@ the posting circuit breaker is tripped.
 import asyncio
 from datetime import datetime, timedelta
 
+from src.browser.session import NetworkBlockedError
 from src.config import Config, SubredditConfig, load_service_catalog
 from src.log import get_logger
 from src.research import store
@@ -82,6 +83,12 @@ async def _candidate_threads(session, config, catalog) -> list[dict]:
                     "subreddit": name,
                 })
             store.mark_subreddit_scanned(name)
+        except NetworkBlockedError:
+            # The IP/session is blocked globally — every remaining sub would
+            # fail the same way. Abort the whole pass NOW (don't burn ~30s of
+            # backoff per remaining sub) and let run_research_pass schedule a
+            # longer cool-down before the next attempt.
+            raise
         except Exception as e:
             log.warning(f"Feed scan failed for r/{name}: {e}")
         await asyncio.sleep(2)
@@ -114,8 +121,16 @@ async def run_research_pass(config: Config, session) -> dict:
         except Exception as e:
             log.warning(f"Discovery refresh failed: {e}")
 
-    # 2) Candidate threads.
-    candidates = await _candidate_threads(session, config, catalog)
+    # 2) Candidate threads. A persistent network block (rate-limit that didn't
+    # clear within navigate()'s backoff) ends the pass cleanly — the next
+    # scheduled pass retries once Reddit has cooled off.
+    results["network_blocked"] = False
+    try:
+        candidates = await _candidate_threads(session, config, catalog)
+    except NetworkBlockedError as e:
+        log.warning(f"Research pass cut short by network block: {e}")
+        candidates = []
+        results["network_blocked"] = True
     results["candidates"] = len(candidates)
 
     # 3) Classify each candidate.
@@ -140,6 +155,13 @@ async def run_research_pass(config: Config, session) -> dict:
 
         try:
             details = await read_thread_details(session, url)
+        except NetworkBlockedError as e:
+            # A sustained block won't clear mid-pass — stop reading threads now
+            # rather than backing off on every remaining candidate. Whatever was
+            # classified so far is kept; the next pass resumes.
+            log.warning(f"Network block during classification, ending pass early: {e}")
+            results["network_blocked"] = True
+            break
         except Exception as e:
             log.warning(f"Could not read {url}: {e}")
             continue

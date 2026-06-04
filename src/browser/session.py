@@ -29,6 +29,24 @@ from src.log import get_logger
 
 log = get_logger("session")
 
+
+class NetworkBlockedError(Exception):
+    """Reddit served its "blocked by network security" 403 wall.
+
+    Unlike SearchBlockedError (search endpoints are *always* blocked for
+    automation), this is the velocity/rate block that hits feeds and threads
+    when requests come too fast. It is transient — it clears after a pause —
+    so navigate() backs off and retries before raising this.
+    """
+
+
+def _is_network_block(status: int | None, body_text: str) -> bool:
+    """True if the page is Reddit's network-security 403 wall."""
+    if status == 403 and "blocked by network security" in body_text.lower():
+        return True
+    # Some block responses come back 200 with the wall in the body.
+    return "blocked by network security" in body_text.lower()
+
 COOKIES_PATH = DATA_DIR / "cookies.json"
 
 # Map browser-extension sameSite values (Cookie-Editor, Chrome export) to the
@@ -314,6 +332,44 @@ class RedditSession:
         if not self._page:
             raise RuntimeError("Session not started")
         return self._page
+
+    async def navigate(self, url: str, *, retries: int = 2,
+                       wait_until: str = "domcontentloaded"):
+        """Navigate to a URL, recovering from Reddit's transient 403 rate-block.
+
+        Reddit serves a "blocked by network security" 403 when requests arrive
+        too fast. It clears after a pause, so on a block we back off with
+        exponential jitter and retry. Only after exhausting retries do we raise
+        NetworkBlockedError — letting the caller end the pass cleanly so the
+        NEXT scheduled pass (after the block clears) can resume. Returns the
+        Playwright response.
+        """
+        page = self.page
+        last_resp = None
+        for attempt in range(retries + 1):
+            last_resp = await page.goto(url, wait_until=wait_until)
+            await asyncio.sleep(human_delay(1500, 3000))
+            status = last_resp.status if last_resp else None
+            try:
+                body_head = await page.evaluate(
+                    "() => (document.body ? document.body.innerText : '').slice(0, 200)"
+                )
+            except Exception:
+                body_head = ""
+            if not _is_network_block(status, body_head):
+                return last_resp
+            if attempt < retries:
+                # Exponential backoff with jitter: ~8s, ~20s. A short, polite
+                # pause is usually enough to clear a velocity block.
+                backoff = (8 * (2.5 ** attempt)) + human_delay(0, 4000)
+                log.warning(
+                    f"Network-security block on {url} (status={status}); "
+                    f"backing off {backoff:.0f}s (attempt {attempt + 1}/{retries})"
+                )
+                await asyncio.sleep(backoff)
+        raise NetworkBlockedError(
+            f"Reddit network-security block persisted for {url} after {retries} retries"
+        )
 
     @property
     def context(self) -> BrowserContext:
