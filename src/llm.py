@@ -30,6 +30,12 @@ def _detect_provider() -> tuple[str, str]:
     if os.environ.get("LLM_MODE", "").lower() == "agent-provided":
         return "agent", ""
 
+    # OpenRouter takes precedence — one key, any model (e.g. free Gemma), swapped
+    # via REDDIT_AGENT_MODEL with no code change. OpenAI-API-compatible.
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
+    if openrouter_key:
+        return "openrouter", openrouter_key
+
     # Check environment
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if anthropic_key and anthropic_key != "agent-provided":
@@ -46,6 +52,10 @@ def _detect_provider() -> tuple[str, str]:
                 with open(rc_file) as f:
                     for line in f:
                         line = line.strip()
+                        if line.startswith("export OPENROUTER_API_KEY="):
+                            key = line.split("=", 1)[1].strip().strip('"').strip("'")
+                            if key:
+                                return "openrouter", key
                         if line.startswith("export ANTHROPIC_API_KEY="):
                             key = line.split("=", 1)[1].strip().strip('"').strip("'")
                             if key and key != "agent-provided":
@@ -109,7 +119,9 @@ def call_llm(
 
     provider, api_key = _detect_provider()
 
-    if provider == "anthropic":
+    if provider == "openrouter":
+        return _call_openrouter(prompt, api_key, max_tokens, model, images)
+    elif provider == "anthropic":
         return _call_anthropic(prompt, api_key, max_tokens, model, images)
     elif provider == "openai":
         return _call_openai(prompt, api_key, max_tokens, model, images)
@@ -187,6 +199,75 @@ def _atomic_write_json(path, obj) -> None:
     with open(tmp, "w") as f:
         f.write(json.dumps(obj))
     os.replace(tmp, str(path))
+
+
+# Default OpenRouter model — a free Gemma. Override per-deployment with
+# REDDIT_AGENT_MODEL in .env (e.g. another OpenRouter slug); no code change.
+OPENROUTER_DEFAULT_MODEL = "google/gemma-4-26b-a4b-it:free"
+
+
+def _call_openrouter(
+    prompt: str, api_key: str, max_tokens: int, model: str | None, images: list | None
+) -> str:
+    """Call any model via OpenRouter (OpenAI-API-compatible).
+
+    One key, any model — pick it with REDDIT_AGENT_MODEL (defaults to a free
+    Gemma). Reuses the OpenAI SDK pointed at OpenRouter's base URL.
+    """
+    from openai import OpenAI
+
+    client = OpenAI(
+        api_key=api_key,
+        base_url="https://openrouter.ai/api/v1",
+        # Optional OpenRouter attribution headers (used for its rankings).
+        default_headers={
+            "HTTP-Referer": "https://reachllm.com",
+            "X-Title": "reddit-agent",
+        },
+    )
+    model = model or os.environ.get("REDDIT_AGENT_MODEL", "") or OPENROUTER_DEFAULT_MODEL
+
+    messages_content = []
+    if images:
+        for img in images:
+            # Convert Anthropic image format to OpenAI/OpenRouter format.
+            if img.get("type") == "image" and img.get("source", {}).get("type") == "base64":
+                media_type = img["source"].get("media_type", "image/png")
+                data = img["source"]["data"]
+                messages_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{media_type};base64,{data}"},
+                })
+            else:
+                messages_content.append(img)
+    messages_content.append({"type": "text", "text": prompt})
+
+    # Free models get rate-limited upstream (429) — retry with backoff so a
+    # transient limit doesn't fail the call in an unattended loop.
+    import time
+    from openai import RateLimitError
+
+    last_err = None
+    for attempt in range(3):
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": messages_content}],
+            )
+            content = response.choices[0].message.content
+            return (content or "").strip()
+        except RateLimitError as e:
+            last_err = e
+            if attempt < 2:
+                wait = 3 * (2 ** attempt)  # 3s, 6s
+                log.warning(
+                    f"OpenRouter 429 on {model} — retrying in {wait}s "
+                    f"(attempt {attempt + 1}/3)"
+                )
+                time.sleep(wait)
+    log.error(f"OpenRouter rate-limited after retries on {model}: {last_err}")
+    raise last_err
 
 
 def _resolve_anthropic_model() -> str:

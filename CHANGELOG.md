@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.12.0] - 2026-06-04
+
+### Added
+- **OpenRouter provider — one key, any model.** Set `OPENROUTER_API_KEY` and the agent routes all LLM calls through OpenRouter (OpenAI-API-compatible), so you can run free or paid models and swap between them with `REDDIT_AGENT_MODEL` — no code change, no per-provider key. OpenRouter takes precedence over Anthropic/OpenAI when its key is present; the default model is a free Gemma (`google/gemma-4-26b-a4b-it:free`). Free models get rate-limited upstream, so OpenRouter calls retry on 429 with backoff (3s, 6s) to stay usable in an unattended loop. Verified live end to end.
+
 ## [0.11.4] - 2026-06-04
 
 ### Added

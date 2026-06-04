@@ -19,6 +19,32 @@ def test_openai_key_used_when_present():
         assert provider == "openai"
 
 
+def test_openrouter_key_used_when_present():
+    with patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-or-real", "LLM_MODE": ""}, clear=True):
+        provider, key = llm._detect_provider()
+        assert provider == "openrouter"
+        assert key == "sk-or-real"
+
+
+def test_openrouter_takes_precedence_over_openai_and_anthropic():
+    # Even with OpenAI + Anthropic keys set, OpenRouter wins.
+    with patch.dict(os.environ, {
+        "OPENROUTER_API_KEY": "sk-or-real",
+        "OPENAI_API_KEY": "sk-real",
+        "ANTHROPIC_API_KEY": "sk-ant-real",
+        "LLM_MODE": "",
+    }, clear=True):
+        provider, _ = llm._detect_provider()
+        assert provider == "openrouter"
+
+
+def test_agent_mode_overrides_openrouter():
+    # Explicit agent handoff still wins over OpenRouter.
+    with patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-or", "LLM_MODE": "agent-provided"}, clear=True):
+        provider, key = llm._detect_provider()
+        assert provider == "agent"
+
+
 def test_explicit_agent_mode_overrides_keys():
     # Even with a key present, LLM_MODE=agent-provided routes to the host agent.
     with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant", "LLM_MODE": "agent-provided"}, clear=True):
