@@ -18,6 +18,7 @@ data/.DS_Store
 data/.llm-request.json
 data/.llm-response.json
 data/cooldowns.json
+data/block_backoff.json
 # Research-mode generated outputs (the lead list itself is data, not source).
 data/opportunities.md
 data/opportunities.json

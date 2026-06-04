@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.11.4] - 2026-06-04
+
+### Added
+- **Adaptive backoff after a network block.** Reddit escalates a repeat-offender IP from a minutes-long velocity block to a multi-hour one, so retrying soon only deepens it. When a research pass is cut short by the block, the agent now records an escalating cool-down (5min → 20min → 60min for consecutive blocks) in `data/block_backoff.json`; `_run_research_safely` skips research while it's active, `--status` surfaces `research_backoff_s`, and a clean pass resets it. The deployed agent now self-paces under blocks instead of hammering Reddit — no operator intervention needed.
+
 ## [0.11.3] - 2026-06-04
 
 ### Added

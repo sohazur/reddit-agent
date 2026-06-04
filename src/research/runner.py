@@ -124,6 +124,8 @@ async def run_research_pass(config: Config, session) -> dict:
     # 2) Candidate threads. A persistent network block (rate-limit that didn't
     # clear within navigate()'s backoff) ends the pass cleanly — the next
     # scheduled pass retries once Reddit has cooled off.
+    from src.safety import block_backoff
+
     results["network_blocked"] = False
     try:
         candidates = await _candidate_threads(session, config, catalog)
@@ -131,6 +133,12 @@ async def run_research_pass(config: Config, session) -> dict:
         log.warning(f"Research pass cut short by network block: {e}")
         candidates = []
         results["network_blocked"] = True
+        # Escalating cool-down so the driver holds off (and doesn't deepen the
+        # block) before the next pass. Cleared below on a successful pass.
+        results["backoff_s"] = block_backoff.record_block()
+    else:
+        # We reached Reddit without a sustained block — reset any backoff.
+        block_backoff.clear()
     results["candidates"] = len(candidates)
 
     # 3) Classify each candidate.

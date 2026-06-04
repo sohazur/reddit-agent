@@ -68,6 +68,15 @@ async def _run_research_safely(config: Config, session, results: dict) -> None:
     """
     if config.research_mode == "off":
         return
+    # Honor a network-block backoff: if a recent pass hit Reddit's IP wall,
+    # hold off rather than re-tripping (and deepening) the block.
+    from src.safety import block_backoff
+    remaining = block_backoff.seconds_remaining()
+    if remaining > 0:
+        log.info(f"Research backing off after a network block — {remaining}s left")
+        results["research"] = {"network_blocked": True, "backoff_s": remaining,
+                               "skipped": True}
+        return
     try:
         from src.research.runner import run_research_pass
         research = await run_research_pass(config, session)
