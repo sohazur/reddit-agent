@@ -201,9 +201,9 @@ def _atomic_write_json(path, obj) -> None:
     os.replace(tmp, str(path))
 
 
-# Default OpenRouter model — a free Gemma. Override per-deployment with
-# REDDIT_AGENT_MODEL in .env (e.g. another OpenRouter slug); no code change.
-OPENROUTER_DEFAULT_MODEL = "google/gemma-4-26b-a4b-it:free"
+# Default OpenRouter model. Override per-deployment with REDDIT_AGENT_MODEL in
+# .env (any OpenRouter slug); no code change. minimax-m3 is a reasoning model.
+OPENROUTER_DEFAULT_MODEL = "minimax/minimax-m3"
 
 
 def _call_openrouter(
@@ -242,6 +242,14 @@ def _call_openrouter(
                 messages_content.append(img)
     messages_content.append({"type": "text", "text": prompt})
 
+    # Reasoning models (e.g. minimax-m3) spend tokens on hidden reasoning that
+    # count against max_tokens, so a small budget can leave no room for the
+    # actual answer. Enable reasoning and give it generous headroom. Toggle off
+    # with REDDIT_AGENT_REASONING=false.
+    reasoning_on = os.environ.get("REDDIT_AGENT_REASONING", "true").lower() != "false"
+    extra_body = {"reasoning": {"enabled": True}} if reasoning_on else None
+    effective_max = max(max_tokens, 2048) if reasoning_on else max_tokens
+
     # Free models get rate-limited upstream (429) — retry with backoff so a
     # transient limit doesn't fail the call in an unattended loop.
     import time
@@ -252,8 +260,9 @@ def _call_openrouter(
         try:
             response = client.chat.completions.create(
                 model=model,
-                max_tokens=max_tokens,
+                max_tokens=effective_max,
                 messages=[{"role": "user", "content": messages_content}],
+                extra_body=extra_body,
             )
             content = response.choices[0].message.content
             return (content or "").strip()
