@@ -17,6 +17,12 @@ DB_PATH = DATA_DIR / "reddit.db"
 LEARNINGS_PATH = DATA_DIR / "learnings.md"
 SUBREDDIT_REPORTS_DIR = DATA_DIR / "subreddit_reports"
 
+# Research / Opportunity-Discovery mode outputs.
+SERVICES_PATH = DATA_DIR / "services.yaml"
+OPPORTUNITIES_MD = DATA_DIR / "opportunities.md"
+OPPORTUNITIES_JSON = DATA_DIR / "opportunities.json"
+RESEARCH_INSIGHTS_PATH = DATA_DIR / "research_insights.md"
+
 # Cap how many debug PNGs we keep so an unattended multi-hour run can't fill
 # the disk (the agent saves one on every error). Keep only the newest N.
 MAX_SCREENSHOTS = 20
@@ -99,6 +105,28 @@ class Config:
     engage_dm_reply: bool = True
     engage_dm_outreach: bool = False
 
+    # Research / Opportunity-Discovery mode.
+    #   "off"          — disabled (default; today's behavior).
+    #   "after_quota"  — run engagement first; spend the rest of the cycle (and
+    #                    cycles where the daily quota is already used up)
+    #                    researching, so a 24/7 agent never idles.
+    #   "only"         — pure passive discovery; never comment/upvote/DM.
+    # Research is READ-ONLY on Reddit — it only reads and builds a lead list, so
+    # it is safe to keep running even while the posting circuit breaker is tripped.
+    research_mode: str = "off"
+    # How wide each research pass casts: candidate subs + threads it inspects.
+    research_max_subreddits: int = 8
+    research_max_threads_per_sub: int = 12
+    # Only opportunities scoring >= this priority (1-10) are recorded/notified.
+    research_min_priority: int = 6
+    # Refresh the discovered-subreddit shortlist at most this often.
+    research_discovery_interval_hours: int = 24
+    # Use the LLM provider's web search to discover new communities (Anthropic).
+    research_web_search: bool = False
+    # Optional push of opportunities to your platform (e.g. ReachLLM).
+    reachllm_opportunities_url: str = ""
+    reachllm_api_token: str = ""
+
     # Subreddits
     subreddits: list[SubredditConfig] = field(default_factory=list)
 
@@ -112,6 +140,15 @@ class Config:
     # Logging
     log_level: str = "INFO"
     screenshot_on_error: bool = True
+
+
+RESEARCH_MODES = ("off", "after_quota", "only")
+
+
+def _normalize_research_mode(value: str) -> str:
+    """Coerce RESEARCH_MODE to a known value, defaulting to 'off' if unknown."""
+    mode = (value or "off").strip().lower()
+    return mode if mode in RESEARCH_MODES else "off"
 
 
 def _require_env(key: str) -> str:
@@ -194,12 +231,75 @@ def load_config() -> Config:
         engage_join=os.environ.get("ENGAGE_JOIN", "true").lower() == "true",
         engage_dm_reply=os.environ.get("ENGAGE_DM_REPLY", "true").lower() == "true",
         engage_dm_outreach=os.environ.get("ENGAGE_DM_OUTREACH", "false").lower() == "true",
+        research_mode=_normalize_research_mode(os.environ.get("RESEARCH_MODE", "off")),
+        research_max_subreddits=int(os.environ.get("RESEARCH_MAX_SUBREDDITS", "8")),
+        research_max_threads_per_sub=int(
+            os.environ.get("RESEARCH_MAX_THREADS_PER_SUB", "12")
+        ),
+        research_min_priority=int(os.environ.get("RESEARCH_MIN_PRIORITY", "6")),
+        research_discovery_interval_hours=int(
+            os.environ.get("RESEARCH_DISCOVERY_INTERVAL_HOURS", "24")
+        ),
+        research_web_search=os.environ.get("RESEARCH_WEB_SEARCH", "false").lower()
+        == "true",
+        reachllm_opportunities_url=os.environ.get("REACHLLM_OPPORTUNITIES_URL", ""),
+        reachllm_api_token=os.environ.get("REACHLLM_API_TOKEN", ""),
         subreddits=load_subreddits(),
         ai_marketing_tracker_path=Path(tracker_path) if tracker_path else None,
         dry_run=os.environ.get("DRY_RUN", "false").lower() == "true",
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
         screenshot_on_error=os.environ.get("SCREENSHOT_ON_ERROR", "true").lower()
         == "true",
+    )
+
+
+@dataclass
+class Service:
+    id: str
+    name: str
+    solves: list[str]
+    signals: list[str]
+    pitch: str
+
+
+@dataclass
+class ServiceCatalog:
+    company_name: str
+    company_url: str
+    company_one_liner: str
+    services: list[Service]
+    audiences: list[str]
+
+
+def load_service_catalog(path: Path = SERVICES_PATH) -> ServiceCatalog:
+    """Load the service catalog used by Research mode to match opportunities.
+
+    Returns an empty catalog (no services) if the file is absent, so research
+    code can degrade to objective-only matching instead of crashing.
+    """
+    if not path.exists():
+        return ServiceCatalog("", "", "", [], [])
+
+    with open(path) as f:
+        raw = yaml.safe_load(f) or {}
+
+    company = raw.get("company", {}) or {}
+    services = [
+        Service(
+            id=s.get("id", s.get("name", "service")),
+            name=s.get("name", ""),
+            solves=s.get("solves", []) or [],
+            signals=s.get("signals", []) or [],
+            pitch=(s.get("pitch", "") or "").strip(),
+        )
+        for s in (raw.get("services", []) or [])
+    ]
+    return ServiceCatalog(
+        company_name=company.get("name", ""),
+        company_url=company.get("url", ""),
+        company_one_liner=(company.get("one_liner", "") or "").strip(),
+        services=services,
+        audiences=raw.get("audiences", []) or [],
     )
 
 

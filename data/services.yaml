@@ -1,0 +1,130 @@
+# Service catalog for Research / Opportunity-Discovery mode.
+#
+# When RESEARCH_MODE is enabled, the agent scans Reddit (and optionally the web)
+# for posts describing problems these services solve, then builds a ranked
+# opportunity list (data/opportunities.md + .json) and — if configured — pushes
+# it to your platform. NOTHING here is ever posted to Reddit; this file only
+# shapes what counts as a "lead" and how the agent describes the fit.
+#
+# Edit freely. Each service:
+#   id:        short stable slug (used in payloads/dedup)
+#   name:      human label
+#   solves:    the problems/pains this addresses (drives matching)
+#   signals:   phrases/symptoms in a post that hint at a fit (drives matching)
+#   pitch:     one-line "how we'd help" summary written into the opportunity
+
+company:
+  name: ReachLLM
+  url: reachllm.com
+  one_liner: >-
+    A native AI-visibility agency. We help brands get found, tracked, and cited
+    across search engines and AI answer engines (GEO / AEO / GEO + technical SEO),
+    for SMBs, enterprises, and agencies.
+
+services:
+  - id: visibility_tracking
+    name: AI Visibility Tracking
+    solves:
+      - not knowing if/where a brand is mentioned by ChatGPT, Gemini, Perplexity, AI Overviews
+      - no way to measure share-of-voice in AI answers over time
+      - competitors getting cited while they are not
+    signals:
+      - "how do I track"
+      - "am I showing up in ChatGPT / Perplexity / AI overviews"
+      - "monitor brand mentions in AI"
+      - "share of voice"
+    pitch: >-
+      We can track exactly where (and whether) the brand is cited across AI
+      answer engines over time, with competitor benchmarking.
+
+  - id: technical_seo
+    name: Critical Technical SEO
+    solves:
+      - crawlability, indexing, site speed, core web vitals, schema/structured data issues
+      - traffic drops after an update
+      - migration or rendering problems hurting rankings
+    signals:
+      - "traffic dropped"
+      - "not getting indexed"
+      - "core web vitals"
+      - "site speed"
+      - "schema markup"
+    pitch: >-
+      We can run a critical technical-SEO audit and fix crawl/index/speed/schema
+      issues that are capping organic and AI visibility.
+
+  - id: geo_aeo
+    name: GEO / AEO / Generative Engine Optimization
+    solves:
+      - content not being cited by LLMs / answer engines
+      - no llms.txt or AI-readable structure
+      - losing visibility as search shifts to AI answers
+    signals:
+      - "not getting cited by AI"
+      - "llms.txt"
+      - "answer engine optimization"
+      - "generative engine optimization"
+      - "rank in ChatGPT"
+    pitch: >-
+      We optimize content and structure so AI answer engines actually cite the
+      brand (GEO/AEO), including llms.txt and AI-readable formatting.
+
+  - id: content_optimization
+    name: AI Content Optimization
+    solves:
+      - existing content not getting picked up or cited by LLMs
+      - thin/outdated content that does not answer real user questions
+    signals:
+      - "rewrite content for AI"
+      - "content not ranking"
+      - "improve existing pages"
+    pitch: >-
+      We rework existing content so it gets surfaced and cited by LLMs without
+      losing its human readability.
+
+  - id: reddit_visibility
+    name: Reddit Visibility / Posts
+    solves:
+      - brand never surfaces in Reddit threads that AI engines and Google cite
+      - no presence in the communities customers actually read
+    signals:
+      - "how to get on Reddit"
+      - "Reddit marketing"
+      - "show up in reddit results"
+    pitch: >-
+      We can build authentic Reddit presence so the brand shows up where buyers
+      (and the AIs that cite Reddit) are looking.
+
+  - id: pr_outreach
+    name: PR Publications & Outreach
+    solves:
+      - no authoritative third-party mentions / backlinks that AIs trust
+      - launches and milestones getting no coverage
+    signals:
+      - "need press / PR"
+      - "get featured"
+      - "digital PR"
+      - "backlinks from real publications"
+    pitch: >-
+      We run PR outreach to land mentions in publications that both humans and
+      AI answer engines treat as authoritative.
+
+  - id: guaranteed_engagement
+    name: Guaranteed 3-Month Engagement
+    solves:
+      - burned by agencies with no accountability
+      - wants outcomes, not retainers with vague deliverables
+    signals:
+      - "agency that actually delivers"
+      - "guaranteed results"
+      - "tired of agencies"
+    pitch: >-
+      For teams that want accountability, we offer a guaranteed 3-month
+      engagement model tied to visibility outcomes.
+
+# Who we serve — used to weight priority (a post from one of these is a better fit).
+audiences:
+  - SMBs
+  - startups / founders
+  - enterprises
+  - marketing agencies
