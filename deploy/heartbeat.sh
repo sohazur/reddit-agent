@@ -10,17 +10,21 @@
 # Exit codes: 0 = tick handled (ran or correctly skipped), 1 = setup error.
 #
 # Env:
-#   REDDIT_AGENT_BIN   path to the reddit-agent executable (default: reddit-agent on PATH)
-#   REDDIT_AGENT_DIR   install dir, used to locate .env (default: $HOME/.reddit-agent)
+#   REDDIT_AGENT_DIR   install dir (default: $HOME/.reddit-agent). Used to locate
+#                      .env, stamps, and to cd into before running.
+#   REDDIT_AGENT_CMD   full command to invoke the agent (default: the installed
+#                      `reddit-agent` binary). For a venv/source checkout set it
+#                      to e.g. ".venv/bin/python -m src.main".
 set -euo pipefail
 
-BIN="${REDDIT_AGENT_BIN:-reddit-agent}"
 AGENT_DIR="${REDDIT_AGENT_DIR:-$HOME/.reddit-agent}"
+CMD="${REDDIT_AGENT_CMD:-reddit-agent}"
 
-if ! command -v "$BIN" >/dev/null 2>&1 && [ ! -x "$BIN" ]; then
-  echo "heartbeat: reddit-agent binary not found ($BIN)" >&2
-  exit 1
-fi
+# Run from the install dir so relative paths (.venv, data/, src/) resolve.
+cd "$AGENT_DIR" 2>/dev/null || { echo "heartbeat: dir not found ($AGENT_DIR)" >&2; exit 1; }
+
+# `agent` runs the command (with any args) as one invocation.
+agent() { eval "$CMD \"\$@\""; }
 
 # Load .env if present so cron/systemd (which have a bare environment) see config.
 if [ -f "$AGENT_DIR/.env" ]; then
@@ -32,7 +36,7 @@ fi
 
 ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 
-status_json="$("$BIN" --status 2>/dev/null || true)"
+status_json="$(agent --status 2>/dev/null || true)"
 if [ -z "$status_json" ]; then
   echo "$(ts) heartbeat: could not read status" >&2
   exit 1
@@ -49,7 +53,7 @@ fi
 
 if is_true "paused"; then
   if [ "$research_on" = false ]; then
-    echo "$(ts) heartbeat: PAUSED — circuit breaker tripped. Not running. Investigate, then: $BIN --resume"
+    echo "$(ts) heartbeat: PAUSED — circuit breaker tripped. Not running. Investigate, then: $CMD --resume"
     # Surface the alert text for whoever reads the logs.
     printf '%s\n' "$status_json" | grep -A20 '"alerts"' || true
     exit 0
@@ -61,14 +65,14 @@ fi
 DIGEST_STAMP="$AGENT_DIR/.last-digest-date"
 today="$(date -u +%Y-%m-%d)"
 if [ ! -f "$DIGEST_STAMP" ] || [ "$(cat "$DIGEST_STAMP" 2>/dev/null)" != "$today" ]; then
-  "$BIN" --digest >/dev/null 2>&1 || true
+  agent --digest >/dev/null 2>&1 || true
   echo "$today" > "$DIGEST_STAMP"
   echo "$(ts) heartbeat: sent daily digest"
 fi
 
 if is_true "should_run"; then
   echo "$(ts) heartbeat: should_run=true — running a cycle"
-  "$BIN"
+  agent
   echo "$(ts) heartbeat: cycle complete"
 else
   echo "$(ts) heartbeat: should_run=false — nothing to do this tick"
