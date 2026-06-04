@@ -25,6 +25,7 @@ Usage:
 import argparse
 import asyncio
 import fcntl
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -59,6 +60,27 @@ LOCKFILE = DATA_DIR / "agent.lock"
 log = get_logger("main")
 
 
+async def _run_research_safely(config: Config, session, results: dict) -> None:
+    """Run a research pass (read-only), guarded. No-op when research is off.
+
+    Research never posts, so it is safe to run even while paused or after the
+    posting quota is spent — that is what keeps a 24/7 agent productive.
+    """
+    if config.research_mode == "off":
+        return
+    try:
+        from src.research.runner import run_research_pass
+        research = await run_research_pass(config, session)
+        results["research"] = research
+        log.info(
+            f"Research: {research.get('opportunities_new', 0)} new opportunities, "
+            f"{research.get('pushed', 0)} pushed"
+        )
+    except Exception as e:
+        log.error(f"Research pass failed: {e}", exc_info=True)
+        results["errors"] = results.get("errors", 0) + 1
+
+
 async def run_cycle(config: Config) -> dict:
     """Run one complete engagement cycle.
 
@@ -78,6 +100,27 @@ async def run_cycle(config: Config) -> dict:
 
     cadence = CadenceManager(config)
 
+    # RESEARCH-ONLY mode: never post. Just monitor account health (read-only)
+    # and discover opportunities. Runs regardless of the posting circuit breaker.
+    if config.research_mode == "only":
+        log.info("RESEARCH-ONLY mode — discovering opportunities, no posting")
+        session = await RedditSession(config).start()
+        try:
+            if await session.is_healthy():
+                try:
+                    feedback = await run_feedback_loop(config, session)
+                    update_learnings(feedback)
+                except Exception as e:
+                    log.warning(f"Feedback (research-only) failed: {e}")
+                await _run_research_safely(config, session, results)
+            else:
+                log.error("Session unhealthy, aborting research-only cycle")
+                results["errors"] += 1
+        finally:
+            await session.close()
+        results["research_only"] = True
+        return results
+
     # GLOBAL CIRCUIT BREAKER: if tripped, do NOT post anything. Still run the
     # feedback loop so we keep monitoring the account while paused.
     from src.safety.breaker import is_paused, get_state, evaluate_feedback, trip
@@ -88,6 +131,8 @@ async def run_cycle(config: Config) -> dict:
         try:
             feedback = await run_feedback_loop(config, session)
             update_learnings(feedback)
+            # Posting is paused, but research is read-only — keep it productive.
+            await _run_research_safely(config, session, results)
         finally:
             await session.close()
         results["paused"] = True
@@ -99,6 +144,8 @@ async def run_cycle(config: Config) -> dict:
         try:
             feedback = await run_feedback_loop(config, session)
             update_learnings(feedback)
+            # Quota spent for posting — spend the rest of the cycle researching.
+            await _run_research_safely(config, session, results)
         finally:
             await session.close()
         return results
@@ -324,6 +371,10 @@ async def run_cycle(config: Config) -> dict:
                 f"Circuit breaker TRIPPED ({breaker_reason}). All posting paused. "
                 f"Run `reddit-agent --resume` after you investigate.",
             )
+
+        # After engagement, spend the remaining cycle time on research (when
+        # RESEARCH_MODE=after_quota). Read-only; reuses the open session.
+        await _run_research_safely(config, session, results)
 
     except Exception as e:
         log.error(f"Cycle failed: {e}", exc_info=True)
@@ -588,6 +639,10 @@ async def main():
         "--status", action="store_true",
         help="Print a JSON status snapshot for a driving agent (no actions taken)",
     )
+    parser.add_argument(
+        "--research", action="store_true",
+        help="Run one research pass only (discover opportunities, no posting)",
+    )
     args = parser.parse_args()
 
     config = load_config()
@@ -622,6 +677,19 @@ async def main():
             update_learnings(feedback)
         finally:
             await session.close()
+        return
+
+    if args.research:
+        results = {"errors": 0}
+        session = await RedditSession(config).start()
+        try:
+            # Force a research pass on demand even if RESEARCH_MODE=off.
+            if config.research_mode == "off":
+                config.research_mode = "only"
+            await _run_research_safely(config, session, results)
+        finally:
+            await session.close()
+        print(json.dumps(results.get("research", {}), indent=2))
         return
 
     await run_cycle(config)

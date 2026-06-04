@@ -41,11 +41,20 @@ fi
 # Minimal JSON probes (no jq dependency).
 is_true()  { printf '%s' "$status_json" | grep -q "\"$1\": *true"; }
 
+# Research mode is read-only, so it stays productive even while posting is paused.
+research_on=false
+if printf '%s' "$status_json" | grep -Eq '"research_mode": *"(after_quota|only)"'; then
+  research_on=true
+fi
+
 if is_true "paused"; then
-  echo "$(ts) heartbeat: PAUSED — circuit breaker tripped. Not running. Investigate, then: $BIN --resume"
-  # Surface the alert text for whoever reads the logs.
-  printf '%s\n' "$status_json" | grep -A20 '"alerts"' || true
-  exit 0
+  if [ "$research_on" = false ]; then
+    echo "$(ts) heartbeat: PAUSED — circuit breaker tripped. Not running. Investigate, then: $BIN --resume"
+    # Surface the alert text for whoever reads the logs.
+    printf '%s\n' "$status_json" | grep -A20 '"alerts"' || true
+    exit 0
+  fi
+  echo "$(ts) heartbeat: PAUSED — posting halted, but research continues (read-only)"
 fi
 
 # Once-a-day digest: send on the first successful tick after UTC midnight.
