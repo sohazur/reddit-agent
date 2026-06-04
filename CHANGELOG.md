@@ -3,6 +3,30 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.11.0] - 2026-06-04
+
+### Added
+- **Research / Opportunity-Discovery mode.** A 24/7 lead finder. With
+  `RESEARCH_MODE=after_quota|only`, the agent scans Reddit (read-only) for posts
+  describing problems your services solve, classifies each against an editable
+  catalog (`data/services.yaml`), and builds a ranked list of opportunities
+  (links + how-we-help) in `data/opportunities.md`/`.json`. It discovers new
+  subreddits (LLM brainstorm, Reddit sitewide search, optional Anthropic web
+  search), learns what's getting traction, and can push new opportunities to a
+  platform endpoint (`REACHLLM_OPPORTUNITIES_URL`). Because it never posts, it
+  keeps running even while the posting circuit breaker is tripped — so the loop
+  is never idle. On-demand: `reddit-agent research`. See RESEARCH.md.
+- **Self-audit + auto-heal watchdog.** Every cycle (and `reddit-agent audit`)
+  the agent checks itself, auto-fixes safe issues (uninitialized DB,
+  screenshot/disk overflow), and escalates the rest (missing/expired cookies, a
+  tripped breaker) as a single alert — so an unattended agent recovers on its
+  own and only pings you when it truly needs you.
+
+### Changed
+- `--status` now reports `research_mode` + opportunity counts and keeps
+  `should_run` true while paused/quota-spent when research is on. The heartbeat
+  no longer hard-stops on a pause when research (read-only) can still run.
+
 ## [0.10.2] - 2026-06-02
 
 ### Fixed
