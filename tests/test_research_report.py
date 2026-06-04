@@ -10,7 +10,7 @@ import src.db as db_module
 from src.config import ServiceCatalog, Service, load_config
 from src.db import init_db
 from src.research import store
-from src.research.report import build_payload, render_markdown
+from src.research.report import build_payload, render_csv, render_markdown
 
 
 @pytest.fixture(autouse=True)
@@ -41,6 +41,44 @@ def _opp(**kw):
     }
     base.update(kw)
     return base
+
+
+class TestRenderCsv:
+    def test_header_and_row(self):
+        import csv as _csv
+        import io
+        out = render_csv([_opp()], _catalog())
+        rows = list(_csv.DictReader(io.StringIO(out)))
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["subreddit"] == "SEO"
+        assert r["url"] == "https://reddit.com/r/SEO/comments/1"
+        assert r["priority"] == "8"
+        # matched service id is resolved to its display name.
+        assert r["matched_services"] == "Technical SEO"
+
+    def test_sorted_by_priority_desc(self):
+        import csv as _csv
+        import io
+        lo = _opp(id="lo", priority=3, title="low")
+        hi = _opp(id="hi", priority=9, title="high")
+        out = render_csv([lo, hi], _catalog())
+        rows = list(_csv.DictReader(io.StringIO(out)))
+        assert [r["title"] for r in rows] == ["high", "low"]
+
+    def test_empty_has_header_only(self):
+        out = render_csv([], _catalog())
+        lines = [ln for ln in out.splitlines() if ln.strip()]
+        assert len(lines) == 1  # just the header
+        assert lines[0].startswith("priority,subreddit,title,url")
+
+    def test_handles_commas_and_quotes(self):
+        import csv as _csv
+        import io
+        opp = _opp(title='Help, my "rankings" tanked')
+        out = render_csv([opp], _catalog())
+        rows = list(_csv.DictReader(io.StringIO(out)))
+        assert rows[0]["title"] == 'Help, my "rankings" tanked'
 
 
 class TestRenderMarkdown:

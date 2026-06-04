@@ -684,6 +684,11 @@ async def main():
         "--audit", action="store_true",
         help="Print a self-audit of agent health (no actions taken)",
     )
+    parser.add_argument(
+        "--export-csv", action="store_true",
+        help="Write data/opportunities.csv (where to post) from the store; "
+             "falls back to scanned threads if no opportunities yet. No network.",
+    )
     args = parser.parse_args()
 
     config = load_config()
@@ -697,6 +702,17 @@ async def main():
     if args.audit:
         from src.watchdog import print_audit
         print_audit(config)
+        return
+
+    if args.export_csv:
+        from src.config import load_service_catalog
+        from src.research.report import export_csv
+        try:
+            catalog = load_service_catalog()
+        except Exception:
+            catalog = None
+        result = export_csv(catalog)
+        print(json.dumps(result, indent=2))
         return
 
     if args.resume:
