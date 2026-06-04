@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from src.browser.session import NetworkBlockedError
 from src.config import SubredditConfig
 from src.db import has_commented_on_thread, record_thread
 from src.log import get_logger
@@ -65,6 +66,11 @@ async def scan_subreddit(
                 comment_count=thread.comment_count,
             )
 
+    except NetworkBlockedError:
+        # A network block is global (IP/session-level), not specific to this
+        # sub. Propagate so the caller can abort the whole pass instead of
+        # grinding through every remaining sub with guaranteed-fail backoff.
+        raise
     except Exception as e:
         log.error(f"Error scanning r/{subreddit.name}: {e}")
 

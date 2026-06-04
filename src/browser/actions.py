@@ -35,8 +35,8 @@ async def extract_feed_posts(
     """
     page = session.page
     url = f"https://www.reddit.com/r/{subreddit_name}/hot/"
-    await page.goto(url, wait_until="domcontentloaded")
-    await asyncio.sleep(human_delay(2000, 4000))
+    # navigate() recovers from Reddit's transient 403 rate-block with backoff.
+    await session.navigate(url)
 
     # Scroll to load more posts
     for _ in range(3):
@@ -85,23 +85,21 @@ async def extract_search_results(
 
     Returns a list of dicts with: id, title, url, score, comment_count.
     """
-    page = session.page
-    resp = await page.goto(search_url, wait_until="domcontentloaded")
-    await asyncio.sleep(human_delay(2000, 4000))
+    from src.browser.session import NetworkBlockedError
 
+    page = session.page
     # Reddit hard-blocks automated access to ALL search endpoints (www, old,
     # .json, in-subreddit) with a 403 "You've been blocked by network security"
-    # wall — confirmed live 2026-06-04. Feeds and threads are NOT blocked. Detect
-    # it and raise so the caller stops hammering search (which only deepens the
-    # rate-block) and falls back to feed scanning.
-    status = resp.status if resp else None
-    body_head = await page.evaluate(
-        "() => (document.body ? document.body.innerText : '').slice(0, 200).toLowerCase()"
-    )
-    if status == 403 or "blocked by network security" in body_head:
+    # wall — confirmed live 2026-06-04. Feeds and threads are NOT blocked.
+    # navigate() retries with backoff; a persistent block on search means the
+    # endpoint is policy-blocked, so surface SearchBlockedError to fall back to
+    # feed scanning rather than wasting more retries on every query.
+    try:
+        await session.navigate(search_url)
+    except NetworkBlockedError as e:
         raise SearchBlockedError(
-            f"Reddit blocked search (status={status}); falling back to feeds"
-        )
+            f"Reddit blocked search ({e}); falling back to feeds"
+        ) from e
 
     # Scroll down to load more results
     for _ in range(2):
@@ -171,8 +169,8 @@ async def extract_thread_content(
 ) -> dict:
     """Navigate to a thread and extract title, body, and top comments."""
     page = session.page
-    await page.goto(thread_url, wait_until="domcontentloaded")
-    await asyncio.sleep(human_delay(2000, 4000))
+    # navigate() recovers from Reddit's transient 403 rate-block with backoff.
+    await session.navigate(thread_url)
 
     # Scroll to load comments
     await page.evaluate("window.scrollBy(0, 500)")

@@ -3,6 +3,12 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.11.3] - 2026-06-04
+
+### Added
+- **Network-block recovery with backoff.** Reddit serves a transient "blocked by network security" 403 when requests arrive too fast (a velocity/rate block, distinct from the permanent search-endpoint block). A new `RedditSession.navigate()` routes all reads (feeds, threads, search) through one place that detects the block, backs off with exponential jitter (~8s, ~20s), and retries before raising `NetworkBlockedError`. Feed scanning, thread reading, and search all use it.
+- **Fast-abort on a global block.** A network block is IP/session-wide, so once one feed is blocked, every other will be too. Instead of grinding through every subreddit with ~30s of guaranteed-fail backoff each, the research pass now aborts on the first sustained block, reports `network_blocked: true`, keeps whatever it already classified, and lets the next scheduled pass retry after the IP cools down. Posting and feed reads outside research get the same retry resilience.
+
 ## [0.11.2] - 2026-06-04
 
 ### Fixed
