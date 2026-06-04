@@ -708,6 +708,7 @@ async def main():
         sys.exit(0)
 
     if args.feedback:
+        setup_logging(config.log_level)
         session = await RedditSession(config).start()
         try:
             feedback = await run_feedback_loop(config, session)
@@ -717,6 +718,10 @@ async def main():
         return
 
     if args.research:
+        # Without this the research pass runs with no log handler attached, so
+        # every "search blocked", "Opportunity found", etc. line is silently
+        # dropped — blinding an unattended collect loop.
+        setup_logging(config.log_level)
         results = {"errors": 0}
         session = await RedditSession(config).start()
         try:
