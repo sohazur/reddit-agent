@@ -13,19 +13,37 @@ Run this every time you wake up (a heartbeat, a cron tick, or when the human ask
 1. status = run: reddit-agent --status        # JSON, takes no action
 2. if status.alerts is non-empty:
      - tell the human each alert
-     - if status.paused: STOP. Do not run. Wait for the human to investigate.
-       (They clear it with: reddit-agent --resume)
+     - if status.paused AND status.research_mode == "off":
+         STOP. Do not run. Wait for the human to investigate.
+         (They clear it with: reddit-agent --resume)
+     - if status.paused AND research is on: posting is halted, but a cycle is
+       still safe to run — it will only do read-only research. Proceed.
 3. if status.should_run:
-     - run: reddit-agent                       # one engagement cycle
-     - report what happened (posted / skipped / blocked)
+     - run: reddit-agent                       # one cycle (engagement and/or research)
+     - report what happened (posted / skipped / blocked / opportunities found)
 4. once per day, on your first wake-up:
      - run: reddit-agent --digest              # daily summary for the human
 5. otherwise: do nothing, check again next heartbeat
 ```
 
 That's it. Don't build your own timers or quotas — `--status` already tells you
-`should_run`, factoring in the cycle interval, the daily quota, and the pause
-state.
+`should_run`, factoring in the cycle interval, the daily quota, the pause state,
+and whether research keeps the loop productive.
+
+## Research mode (24/7 lead finder)
+
+If `status.research_mode` is `after_quota` or `only`, the agent also discovers
+sales/outreach opportunities (read-only) and keeps a ranked list in
+`data/opportunities.md`. `should_run` stays true even when the posting quota is
+spent or posting is paused, because research is safe to run anytime. See
+[RESEARCH.md](RESEARCH.md). On-demand: `reddit-agent research`.
+
+## Self-audit
+
+`reddit-agent --audit` prints a health report (no actions). Every real cycle
+also self-audits first and auto-heals safe issues; anything it can't fix
+(missing/expired cookies, a tripped breaker) is alerted. If you see a
+`cookies_*` issue, the human needs to re-export the cookie jar.
 
 ## Reading `reddit-agent --status`
 
@@ -91,6 +109,8 @@ and you don't need to do any of this.
 | `reddit-agent` | run one engagement cycle | yes (unless DRY_RUN) |
 | `reddit-agent --feedback` | check past comments only | no posting |
 | `reddit-agent --digest` | daily summary for the human | no |
+| `reddit-agent --research` | one opportunity-discovery pass | no (read-only) |
+| `reddit-agent --audit` | self-audit health snapshot | no |
 | `reddit-agent --resume` | clear the circuit breaker | resumes posting |
 
 ## The rules the tool enforces for you (so you don't have to)

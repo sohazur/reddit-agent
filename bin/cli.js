@@ -449,6 +449,14 @@ switch (command) {
   case "--digest":
     runPython(["--digest"]);
     break;
+  case "research":
+  case "--research":
+    runPython(["--research"]);
+    break;
+  case "audit":
+  case "--audit":
+    runPython(["--audit"]);
+    break;
   case "objective":
     (async () => {
       const newObj = process.argv[3]
@@ -485,6 +493,8 @@ Commands:
   reddit-agent run         Run one engagement cycle (default)
   reddit-agent feedback    Check past comments for karma/removals
   reddit-agent digest      Print daily performance report
+  reddit-agent research    Run one research pass (discover opportunities)
+  reddit-agent audit       Self-audit agent health (no actions)
   reddit-agent objective   Change your Reddit objective/goal
   reddit-agent update      Pull latest version
   reddit-agent status      Show config and health check
