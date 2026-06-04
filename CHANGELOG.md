@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.11.1] - 2026-06-04
+
+### Fixed
+- **Subreddit-ban detection — the real cause of the ~90% "comment_box_not_found" rate.** Live screenshots showed the account is *banned* from r/AskReddit ("You're currently banned from this community and can't comment on posts."). Reddit renders no composer for banned users, so the ban was masquerading as a flaky composer — and the v0.10.1/v0.10.2 scroll "fixes" could never have helped. The agent now detects the ban banner before attempting the composer, returns a distinct `subreddit_banned` error, cools the whole subreddit down for 365 days, and records the reason to learnings — so it stops burning a cycle's attempts on a sub it can't post in. r/AskReddit is now cooled down; posting in r/NoStupidQuestions is unaffected and continues to work.
+
 ## [0.11.0] - 2026-06-04
 
 ### Added

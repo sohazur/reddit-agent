@@ -346,6 +346,35 @@ async def post_comment(
         log.warning(f"Thread is locked: {thread_url}")
         return {"success": False, "error": "thread_locked"}
 
+    # Check if we're banned from this community. Reddit renders a banner
+    # ("You're currently banned from this community and can't comment on posts.")
+    # and simply does NOT render a composer for banned users. Without this check
+    # the ban masquerades as comment_box_not_found and we burn every attempt in
+    # the sub retrying a box that will never exist. Detect it, return a distinct
+    # terminal error, and let the caller cool the whole subreddit down.
+    ban_text = await page.evaluate("""
+        () => {
+            const t = (document.body.innerText || '').toLowerCase();
+            // Match Reddit's exact phrasing without being so broad we false-trip
+            // on unrelated "ban" words elsewhere on the page.
+            if (t.includes("banned from this community") ||
+                t.includes("you're currently banned") ||
+                t.includes("you are currently banned") ||
+                t.includes("can't comment on posts") ||
+                t.includes("cannot comment on posts")) {
+                // Pull the sentence for the learning log.
+                const m = (document.body.innerText || '').match(
+                    /[^.\\n]*banned from this community[^.\\n]*/i
+                );
+                return m ? m[0].trim() : "banned from this community";
+            }
+            return '';
+        }
+    """)
+    if ban_text:
+        log.warning(f"Account is banned from this community: {thread_url} — {ban_text}")
+        return {"success": False, "error": "subreddit_banned", "reason": ban_text}
+
     # Step 1: Dismiss cookie popup
     try:
         btns = await page.query_selector_all("button")
