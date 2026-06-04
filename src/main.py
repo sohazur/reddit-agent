@@ -613,6 +613,25 @@ async def _process_thread(
         )
 
         log.info(f"Comment posted! ID: {comment_id}, quality: {quality.average:.1f}")
+    elif post_result.get("error") == "subreddit_banned":
+        # A community ban is effectively permanent — not a transient failure.
+        # Cool the whole subreddit down for a long window so we stop wasting a
+        # cycle's attempts on a composer Reddit will never render for us, and
+        # record why so strategy can learn from it.
+        from datetime import datetime, timezone
+
+        from src.feedback.learning import _append_learnings
+        from src.safety.cooldown import start_cooldown
+        reason = post_result.get("reason", "banned from this community")
+        start_cooldown(subreddit.name, f"banned: {reason}", days=365)
+        _append_learnings([
+            f"\n## {datetime.now(timezone.utc):%Y-%m-%d} — r/{subreddit.name} (BANNED)",
+            f"- Account is banned from this community: {reason}. "
+            f"Cooled down 365d; stop attempting posts here.",
+        ])
+        log.error(f"Banned from r/{subreddit.name} — cooled down 365d: {reason}")
+        results.setdefault("banned", 0)
+        results["banned"] += 1
     else:
         log.error(f"Failed to post comment: {post_result.get('error')}")
         results["errors"] += 1

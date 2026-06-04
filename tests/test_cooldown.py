@@ -48,3 +48,16 @@ def test_expired_cooldown_clears(store):
 def test_other_subs_unaffected(store):
     cd.start_cooldown("SEO", "x", days=3)
     assert cd.is_on_cooldown("marketing") is False
+
+
+def test_ban_cooldown_long_window(store):
+    # A community ban is effectively permanent; main.py cools it down for a year.
+    # Verify a 365-day cooldown holds the sub and survives near-term re-checks.
+    cd.start_cooldown("AskReddit", "banned: you're currently banned", days=365)
+    assert cd.is_on_cooldown("AskReddit") is True
+    actives = cd.active_cooldowns()
+    assert len(actives) == 1
+    assert actives[0].reason.startswith("banned:")
+    # Not yet expired at +30 days.
+    until = datetime.fromisoformat(actives[0].until)
+    assert until > datetime.now(timezone.utc) + timedelta(days=300)
