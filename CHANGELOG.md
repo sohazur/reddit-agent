@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.12.1] - 2026-06-04
+
+### Added
+- **CSV export of opportunities (where to post).** `reddit-agent --export-csv` writes `data/opportunities.csv` — a spreadsheet of threads to engage, sorted by priority, with subreddit, title, clickable URL, problem summary, suggested angle, matched services, confidence, and status. Every research pass now also writes the CSV alongside the md/json. When no classified opportunities exist yet (e.g. before the first full research pass, or while Reddit is blocked), the export falls back to the raw scanned-thread table so the CSV still lists real Reddit threads. No network needed — pure store read.
+
 ## [0.12.0] - 2026-06-04
 
 ### Added

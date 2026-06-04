@@ -4,9 +4,12 @@ render_markdown / build_payload are pure so they can be tested directly; the
 write_outputs() wrapper reads the store and writes the files on disk.
 """
 
+import csv
+import io
 from datetime import datetime
 
 from src.config import (
+    OPPORTUNITIES_CSV,
     OPPORTUNITIES_JSON,
     OPPORTUNITIES_MD,
     ServiceCatalog,
@@ -16,6 +19,43 @@ from src.research import store
 from src.research.services import pitches_for
 
 log = get_logger("research.report")
+
+# Column order for the "where to post" CSV — highest-signal fields first.
+CSV_COLUMNS = [
+    "priority", "subreddit", "title", "url", "problem_summary",
+    "suggested_angle", "matched_services", "confidence", "author",
+    "status", "found_at",
+]
+
+
+def render_csv(opportunities: list[dict], catalog: ServiceCatalog | None = None) -> str:
+    """Render opportunities as CSV text (sorted highest-priority first)."""
+    rows = sorted(
+        opportunities, key=lambda o: (o.get("priority") or 0), reverse=True
+    )
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=CSV_COLUMNS, extrasaction="ignore")
+    w.writeheader()
+    by_id = {s.id: s.name for s in catalog.services} if catalog else {}
+    for o in rows:
+        svc = o.get("matched_services") or []
+        if isinstance(svc, str):
+            svc = [svc]
+        svc_names = [by_id.get(s, s) for s in svc]
+        w.writerow({
+            "priority": o.get("priority", ""),
+            "subreddit": o.get("subreddit", ""),
+            "title": o.get("title", ""),
+            "url": o.get("url", ""),
+            "problem_summary": o.get("problem_summary", ""),
+            "suggested_angle": o.get("suggested_angle", ""),
+            "matched_services": "; ".join(svc_names),
+            "confidence": o.get("confidence", ""),
+            "author": o.get("author", ""),
+            "status": o.get("status", ""),
+            "found_at": o.get("found_at", ""),
+        })
+    return buf.getvalue()
 
 
 def _service_names(catalog: ServiceCatalog, ids: list[str]) -> list[str]:
@@ -109,6 +149,56 @@ def write_outputs(catalog: ServiceCatalog, limit: int = 200) -> dict:
 
     payload = build_payload(opportunities, catalog)
     OPPORTUNITIES_JSON.write_text(json.dumps(payload, indent=2))
+    OPPORTUNITIES_CSV.write_text(render_csv(opportunities, catalog))
 
-    log.info(f"Wrote {len(opportunities)} opportunities to {OPPORTUNITIES_MD.name}")
+    log.info(
+        f"Wrote {len(opportunities)} opportunities to "
+        f"{OPPORTUNITIES_MD.name} / .json / .csv"
+    )
     return payload
+
+
+def export_csv(catalog: ServiceCatalog | None = None, limit: int = 500) -> dict:
+    """Write data/opportunities.csv from the store and return a summary.
+
+    Primary source is classified opportunities. If there are none yet (e.g. the
+    research pass hasn't found any, or Reddit is blocked), fall back to the raw
+    scanned threads so the CSV still answers "where could I post" with real
+    Reddit threads we've already seen.
+    """
+    opportunities = store.get_opportunities(limit=limit)
+    source = "opportunities"
+
+    if not opportunities:
+        # Fall back to scanned threads from the main table.
+        from src.db import get_connection
+        with get_connection() as conn:
+            conn.row_factory = __import__("sqlite3").Row
+            rows = conn.execute(
+                """SELECT subreddit, title, url, score, comment_count,
+                          relevance_score, status, first_seen_at
+                   FROM threads ORDER BY score DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        opportunities = [
+            {
+                "priority": r["relevance_score"] or "",
+                "subreddit": r["subreddit"],
+                "title": r["title"],
+                "url": r["url"],
+                "problem_summary": "",
+                "suggested_angle": "",
+                "matched_services": [],
+                "confidence": "",
+                "author": "",
+                "status": r["status"] or "scanned",
+                "found_at": r["first_seen_at"] or "",
+            }
+            for r in rows
+        ]
+        source = "scanned_threads"
+
+    OPPORTUNITIES_CSV.parent.mkdir(parents=True, exist_ok=True)
+    OPPORTUNITIES_CSV.write_text(render_csv(opportunities, catalog))
+    log.info(f"Exported {len(opportunities)} rows ({source}) to {OPPORTUNITIES_CSV}")
+    return {"rows": len(opportunities), "source": source, "path": str(OPPORTUNITIES_CSV)}

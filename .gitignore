@@ -22,6 +22,7 @@ data/block_backoff.json
 # Research-mode generated outputs (the lead list itself is data, not source).
 data/opportunities.md
 data/opportunities.json
+data/opportunities.csv
 data/research_insights.md
 data/research_subreddits.yaml
 # Local dev test virtualenv

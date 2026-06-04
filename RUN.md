@@ -59,7 +59,10 @@ whether to run.
 
 ## Read the output
 
-- `data/opportunities.md` / `.json` — the ranked lead list (research mode).
+- `data/opportunities.md` / `.json` / `.csv` — the ranked lead list (research
+  mode). Generate the CSV on demand with `reddit-agent --export-csv` (sorted by
+  priority: subreddit, title, URL, problem, suggested angle, matched services).
+  Falls back to scanned threads if no opportunities are classified yet.
 - `data/research_insights.md` — what's getting traction; feeds future passes.
 - `data/learnings.md` — auto-captured wins/removals/bans per subreddit.
 - `data/screenshots/error_*.png` — **the page state at the moment of a failure.**

@@ -21,6 +21,7 @@ SUBREDDIT_REPORTS_DIR = DATA_DIR / "subreddit_reports"
 SERVICES_PATH = DATA_DIR / "services.yaml"
 OPPORTUNITIES_MD = DATA_DIR / "opportunities.md"
 OPPORTUNITIES_JSON = DATA_DIR / "opportunities.json"
+OPPORTUNITIES_CSV = DATA_DIR / "opportunities.csv"
 RESEARCH_INSIGHTS_PATH = DATA_DIR / "research_insights.md"
 
 # Cap how many debug PNGs we keep so an unattended multi-hour run can't fill
