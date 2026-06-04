@@ -194,7 +194,7 @@ async def discover_threads_via_search(
     Each thread dict: {id, title, url, score, comment_count, subreddit}.
     Subreddits seen here are also registered as discovered candidates.
     """
-    from src.browser.actions import extract_search_results
+    from src.browser.actions import SearchBlockedError, extract_search_results
     from src.browser.stealth import human_delay
     import asyncio
 
@@ -204,6 +204,12 @@ async def discover_threads_via_search(
         url = reddit_search_url(query)
         try:
             results = await extract_search_results(session, url, limit=per_query)
+        except SearchBlockedError as e:
+            # Reddit blocks all search endpoints for automation. Stop the whole
+            # loop on the first block — retrying every query only deepens the
+            # rate-block and never succeeds. Feed scanning carries discovery.
+            log.warning(f"{e} — skipping search discovery this pass")
+            break
         except Exception as e:
             log.warning(f"Search failed for '{query}': {e}")
             continue
