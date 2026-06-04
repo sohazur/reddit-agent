@@ -79,3 +79,30 @@ class TestUrls:
     def test_subreddit_from_url(self):
         assert subreddit_from_url("https://www.reddit.com/r/SEO/comments/abc/x/") == "SEO"
         assert subreddit_from_url("https://example.com/none") == ""
+
+
+class TestSearchBlockedDegradation:
+    """Reddit 403-blocks all search endpoints; discovery must degrade, not crash."""
+
+    async def test_returns_empty_and_breaks_on_block(self, monkeypatch):
+        import src.browser.actions as actions
+        from src.config import load_config
+        from src.research import discovery
+
+        calls = {"n": 0}
+
+        async def fake_extract(session, url, limit=10):
+            calls["n"] += 1
+            raise actions.SearchBlockedError("blocked")
+
+        monkeypatch.setattr(actions, "extract_search_results", fake_extract)
+        # Don't touch the real store on a known-sub upsert.
+        monkeypatch.setattr(discovery.store, "subreddit_known", lambda s: True)
+
+        config = load_config()
+        threads = await discovery.discover_threads_via_search(
+            session=object(), config=config, catalog=_catalog()
+        )
+        # No threads, and it stopped after the FIRST block (didn't retry every query).
+        assert threads == []
+        assert calls["n"] == 1

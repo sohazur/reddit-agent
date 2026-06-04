@@ -15,6 +15,14 @@ from src.log import get_logger
 log = get_logger("actions")
 
 
+class SearchBlockedError(Exception):
+    """Reddit returned its network-security 403 wall for a search request.
+
+    Search endpoints are reliably blocked for automation; feeds/threads are not.
+    Callers catch this to stop retrying search and fall back to feed scanning.
+    """
+
+
 async def extract_feed_posts(
     session,  # RedditSession
     subreddit_name: str,
@@ -78,8 +86,22 @@ async def extract_search_results(
     Returns a list of dicts with: id, title, url, score, comment_count.
     """
     page = session.page
-    await page.goto(search_url, wait_until="domcontentloaded")
+    resp = await page.goto(search_url, wait_until="domcontentloaded")
     await asyncio.sleep(human_delay(2000, 4000))
+
+    # Reddit hard-blocks automated access to ALL search endpoints (www, old,
+    # .json, in-subreddit) with a 403 "You've been blocked by network security"
+    # wall — confirmed live 2026-06-04. Feeds and threads are NOT blocked. Detect
+    # it and raise so the caller stops hammering search (which only deepens the
+    # rate-block) and falls back to feed scanning.
+    status = resp.status if resp else None
+    body_head = await page.evaluate(
+        "() => (document.body ? document.body.innerText : '').slice(0, 200).toLowerCase()"
+    )
+    if status == 403 or "blocked by network security" in body_head:
+        raise SearchBlockedError(
+            f"Reddit blocked search (status={status}); falling back to feeds"
+        )
 
     # Scroll down to load more results
     for _ in range(2):

@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.11.2] - 2026-06-04
+
+### Fixed
+- **Research discovery degrades gracefully when Reddit blocks search.** Reddit hard-blocks automated access to *every* search endpoint — `www`/`old`/`.json`/in-subreddit — with a 403 "You've been blocked by network security" wall (confirmed live). The research pass used Reddit search to find candidate threads, so it silently returned zero opportunities while retrying every blocked query (which only deepens the rate-block). `extract_search_results` now detects the 403/block banner and raises `SearchBlockedError`; discovery stops after the first block and falls back to feed scanning + LLM-suggested subreddits (the paths that aren't blocked). Feeds and threads are unaffected — posting and feed-based discovery keep working.
+
 ## [0.11.1] - 2026-06-04
 
 ### Fixed
